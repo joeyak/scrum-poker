@@ -34,11 +34,12 @@ func NewSession(ID string, Expires time.Time, cards []string) *Session {
 
 func (session *Session) NewUser(name string, userType UserType, isQA bool) *User {
 	user := &User{
-		ID:   uuid.NewString(),
-		Name: name,
-		Type: userType,
-		IsQA: isQA,
-
+		UserInfo: UserInfo{
+			Name: name,
+			Type: userType,
+			IsQA: isQA,
+		},
+		ID:       uuid.NewString(),
 		UpdateCh: make(chan struct{}),
 	}
 	session.Users[user.ID] = user
@@ -188,12 +189,16 @@ var (
 	UserTypeWatcher     UserType = "Watcher"
 )
 
+type UserInfo struct {
+	Name string
+	Type UserType
+	IsQA bool
+}
+
 type User struct {
+	UserInfo
 	Active bool
 	ID     string
-	Name   string
-	Type   UserType
-	IsQA   bool
 	Card   string
 
 	UpdateCh chan struct{}

@@ -82,25 +82,26 @@ templ SessionCreated(session models.Session, host string) {
 	</div>
 }
 
-templ SessionJoin(session models.Session) {
+templ SessionJoin(session models.Session, info models.UserInfo) {
 	@titleSpan(fmt.Sprintf("Join Session %s", session.ID))
 	<form action={ templ.URL(fmt.Sprintf("/session/%s/join", session.ID)) } method="POST">
 		<fieldset>
 			<div class="grid">
 				<label>
 					Username
-					<input name="name"/>
+					<input name="name" value={ info.Name }/>
 				</label>
 				<label>
 					Type
 					<select name="type">
-						<option>{ string(models.UserTypeParticipant) }</option>
-						<option>{ string(models.UserTypeWatcher) }</option>
+						for _, userType := range []models.UserType{models.UserTypeParticipant, models.UserTypeWatcher} {
+							<option selected?={ userType == info.Type }>{ string(userType) }</option>
+						}
 					</select>
 				</label>
 			</div>
 			<label style="vertical-alignment: middle;">
-				<input type="checkbox" name="isQA" role="switch"/>
+				<input type="checkbox" name="isQA" role="switch" checked?={ info.IsQA }/>
 				Is QA
 			</label>
 		</fieldset>
@@ -141,7 +142,7 @@ templ PokerContent(session models.Session, currentUser models.User) {
 			<div class="grid">
 				if results, ok := session.Calc(); ok {
 					if session.Showing {
-						<button hx-vals={ `{"resetResults": true}` } ws-send>Reset</button>
+						<button class="secondary" hx-vals={ `{"resetResults": true}` } ws-send>Reset</button>
 						<div class="results">
 							<div>Avg: { results.Points() }</div>
 							<div>Distribution: { results.Distribution() }</div>

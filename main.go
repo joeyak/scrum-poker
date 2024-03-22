@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -69,6 +70,7 @@ func main() {
 	mux.HandleFunc("POST /session/{sessionID}/join", handleSessionJoin)
 	mux.HandleFunc("/session/{sessionID}/user/{userID}/ws", handleUserWs)
 
+	slog.Info("Starting server", "addr", addr)
 	http.ListenAndServe(addr, mux)
 }
 
@@ -158,7 +160,24 @@ func handleSession(w http.ResponseWriter, r *http.Request) {
 	sessionAttr := slog.String("session", session.ID)
 
 	renderSessionJoin := func() {
-		err := components.SessionJoin(*session).Render(r.Context(), w)
+		resetInfoCookie := func() { http.SetCookie(w, &http.Cookie{Name: session.ID, Path: "/", MaxAge: -1}) }
+
+		info := models.UserInfo{}
+		if cookie, _ := r.Cookie("info"); cookie != nil {
+			data, err := base64.StdEncoding.DecodeString(cookie.Value)
+			if err != nil {
+				slog.Error("could not decode cookie string", err)
+				resetInfoCookie()
+			} else {
+				err := json.Unmarshal(data, &info)
+				if err != nil {
+					slog.Error("could not unmarshal cookie data")
+					resetInfoCookie()
+				}
+			}
+		}
+
+		err := components.SessionJoin(*session, info).Render(r.Context(), w)
 		if err != nil {
 			slog.Error("could not render session join page", sessionAttr, err)
 		}
@@ -172,11 +191,7 @@ func handleSession(w http.ResponseWriter, r *http.Request) {
 
 	user := session.Users[userCookie.Value]
 	if user == nil {
-		http.SetCookie(w, &http.Cookie{
-			Name:   session.ID,
-			Path:   "/",
-			MaxAge: -1,
-		})
+		http.SetCookie(w, &http.Cookie{Name: session.ID, Path: "/", MaxAge: -1})
 		renderSessionJoin()
 		return
 	}
@@ -208,6 +223,17 @@ func handleSessionJoin(w http.ResponseWriter, r *http.Request) {
 			Value:   user.ID,
 			Path:    "/",
 		})
+
+		info, err := json.Marshal(user.UserInfo)
+		if err != nil {
+			slog.Error("could not marshal user info", err)
+		} else {
+			http.SetCookie(w, &http.Cookie{
+				Name:  "info",
+				Value: base64.StdEncoding.EncodeToString(info),
+				Path:  "/",
+			})
+		}
 	}
 
 	http.Redirect(w, r, fmt.Sprintf("/session/%s", session.ID), http.StatusFound)
