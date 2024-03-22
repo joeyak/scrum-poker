@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -182,6 +183,8 @@ func handleSession(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("could not render root page", err)
 	}
+
+	go session.SendUpdates()
 }
 
 func handleSessionJoin(w http.ResponseWriter, r *http.Request) {
@@ -241,53 +244,67 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	for {
-		_, message, err := conn.Read(r.Context())
-		if err != nil {
-			if !errors.As(err, &websocket.CloseError{}) {
-				slog.Error("could not read connection", err)
-			}
-			break
-		}
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
 
-		slog.Debug("Websock data recieved", "message", string(message))
-
-		value := struct {
-			Card     string
-			FlipType bool
-			FlipQA   bool
-		}{}
-		err = json.Unmarshal(message, &value)
-		if err != nil {
-			slog.Error("could not unmarshal value", err)
-			renderError()
-			continue
-		}
-
-		slog.Info("A", "value", value)
-
-		if value.Card != "" {
-			user.Card, err = strconv.ParseFloat(value.Card, 64)
+	go func() {
+		for {
+			_, message, err := conn.Read(r.Context())
 			if err != nil {
-				slog.Error("invalid card sent", err)
-				value.Card = ""
+				if !errors.As(err, &websocket.CloseError{}) {
+					slog.Error("could not read connection", err)
+				}
+				cancel()
+				return
 			}
-		}
 
-		if value.FlipQA {
-			user.IsQA = !user.IsQA
-		}
+			slog.Debug("Websock data recieved", "message", string(message))
 
-		if value.FlipType {
-			if user.Type == models.UserTypeParticipant {
-				user.Type = models.UserTypeWatcher
-			} else {
-				user.Type = models.UserTypeParticipant
+			value := struct {
+				Card     string
+				FlipType bool
+				FlipQA   bool
+			}{}
+			err = json.Unmarshal(message, &value)
+			if err != nil {
+				slog.Error("could not unmarshal value", err)
+				renderError()
+				continue
 			}
+
+			slog.Info("A", "value", value)
+
+			if value.Card != "" {
+				user.Card = value.Card
+			}
+
+			if value.FlipQA {
+				user.IsQA = !user.IsQA
+			}
+
+			if value.FlipType {
+				if user.Type == models.UserTypeParticipant {
+					user.Type = models.UserTypeWatcher
+				} else {
+					user.Type = models.UserTypeParticipant
+				}
+			}
+
+			session.SendUpdates()
+		}
+	}()
+
+	for {
+		select {
+		case <-user.UpdateCh:
+			slog.Debug("Update Recieved", "user", user.Name)
+		case <-ctx.Done():
+			slog.Debug("DONE")
+			return
 		}
 
 		var buff bytes.Buffer
-		err = components.PokerContent(*session, *user, value.Card).Render(r.Context(), &buff)
+		err = components.PokerContent(*session, *user).Render(r.Context(), &buff)
 		if err != nil {
 			slog.Error("could not render poker content", err)
 		}

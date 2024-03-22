@@ -1,6 +1,7 @@
 package models
 
 import (
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -31,6 +32,8 @@ func (session *Session) NewUser(name string, userType UserType, isQA bool) *User
 		Name: name,
 		Type: userType,
 		IsQA: isQA,
+
+		UpdateCh: make(chan struct{}),
 	}
 	session.Users[user.ID] = user
 	return user
@@ -45,6 +48,14 @@ func (session *Session) SortedUsers() []*User {
 	return users
 }
 
+func (session *Session) SendUpdates() {
+	for _, user := range session.Users {
+		slog.Debug("Updating", "user", user.Name)
+		user.UpdateCh <- struct{}{}
+		slog.Debug("Updating Done", "user", user.Name)
+	}
+}
+
 type UserType string
 
 var (
@@ -57,5 +68,7 @@ type User struct {
 	Name string
 	Type UserType
 	IsQA bool
-	Card float64
+	Card string
+
+	UpdateCh chan struct{}
 }

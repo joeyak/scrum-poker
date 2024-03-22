@@ -111,7 +111,7 @@ templ SessionJoin(session models.Session) {
 templ SessionRoom(session models.Session, currentUser models.User) {
 	@titleSpan(fmt.Sprintf("Session %s - Welcome %s", session.ID, currentUser.Name))
 	<div hx-ext="ws" ws-connect={ fmt.Sprintf("/session/%s/user/%s/ws", session.ID, currentUser.ID) }>
-		@PokerContent(session, currentUser, "")
+		@PokerContent(session, currentUser)
 	</div>
 }
 
@@ -119,14 +119,14 @@ templ PokerError(message string) {
 	<div id="error" class="error">{ message }</div>
 }
 
-templ PokerContent(session models.Session, currentUser models.User, selectedCard string) {
+templ PokerContent(session models.Session, currentUser models.User) {
 	@PokerError("")
 	<article id="cards">
-		<header>Cards - { selectedCard }</header>
+		<header>Cards</header>
 		<div class="poker-grid">
 			for _, card := range session.Cards {
 				<div
-					class={ "poker-card", templ.KV("selected-card", selectedCard == card) }
+					class={ "poker-card", templ.KV("selected-card", currentUser.Card == card) }
 					hx-vals={ fmt.Sprintf(`{"card": "%s"}`, card) }
 					ws-send
 				>{ card }</div>
@@ -138,13 +138,13 @@ templ PokerContent(session models.Session, currentUser models.User, selectedCard
 	</article>
 	<article id="players">
 		<header>Players</header>
-		<div class="grid" style="padding-bottom: 1rem;">
+		<div class="grid player-row">
 			<div>User</div>
 			<div>Is QA</div>
 			<div>User Type</div>
 		</div>
 		for _, user := range session.SortedUsers() {
-			<div class="grid">
+			<div class={ "grid", "player-row", templ.KV("has-selected-card", user.Card != "") }>
 				<div>{ user.Name }</div>
 				if user.ID == currentUser.ID {
 					<div>

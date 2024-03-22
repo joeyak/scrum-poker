@@ -55,6 +55,17 @@ body>footer {
     color: color-mix(in srgb, var(--pico-color) 10%, gray);
 }
 
+.has-selected-card {
+    background-color: color-mix(in srgb, var(--pico-card-background-color) 94%, green);
+}
+
+.player-row {
+    padding-top: 0.25em;
+    padding-bottom: 0.5em;
+    padding-left: 0.75em;
+    padding-right: 0.75em;
+}
+
 .small-button {
     /* This style is to make buttons work inline */
     height: unset;

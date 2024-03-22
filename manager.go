@@ -19,9 +19,10 @@ func NewSessionManager() SessionManager {
 			Cards:   []string{"0.5", "1", "2", "3", "4", "5", "6", "7", "8"},
 			Users: map[string]*models.User{
 				"7ab54fb9-ebdb-4580-9557-16e2995837cc": {
-					ID:   "7ab54fb9-ebdb-4580-9557-16e2995837cc",
-					Name: "Joey",
-					Type: models.UserTypeParticipant,
+					ID:       "7ab54fb9-ebdb-4580-9557-16e2995837cc",
+					Name:     "Joey",
+					Type:     models.UserTypeParticipant,
+					UpdateCh: make(chan struct{}),
 				},
 			},
 		},
