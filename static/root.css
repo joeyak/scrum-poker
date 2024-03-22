@@ -1,0 +1,64 @@
+html,
+body {
+    height: 100%;
+}
+
+body {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+body>header,
+body>footer {
+    background-color: color-mix(in srgb, var(--pico-background-color) 98%, var(--pico-contrast));
+    padding-left: 1rem;
+    padding-right: 1rem;
+}
+
+#main {
+    flex-grow: 1;
+}
+
+.error {
+    color: red;
+}
+
+.poker-grid {
+    margin-top: 1rem;
+    display: flex;
+    justify-content: space-around;
+}
+
+.poker-card {
+    --line-height: 6rem;
+    background-color: color-mix(in srgb, var(--pico-card-background-color) 98%, var(--pico-contrast));
+    text-align: center;
+    line-height: var(--line-height);
+    height: var(--line-height);
+    width: calc(var(--line-height) * 3/4);
+    border-radius: 10%;
+    transition: 0.25s;
+}
+
+.poker-card:not(.selected-card):hover {
+    background-color: color-mix(in srgb, var(--pico-card-background-color) 94%, var(--pico-contrast));
+}
+
+.selected-card {
+    background-color: color-mix(in srgb, var(--pico-card-background-color) 94%, green);
+    color: color-mix(in srgb, var(--pico-color) 10%, green);
+}
+
+.poker-grid:has(.selected-card)>.poker-card:not(.selected-card) {
+    background-color: color-mix(in srgb, var(--pico-card-background-color) 94%, gray);
+    color: color-mix(in srgb, var(--pico-color) 10%, gray);
+}
+
+.small-button {
+    /* This style is to make buttons work inline */
+    height: unset;
+    padding: 0.25rem 0.5rem;
+    margin-bottom: 0;
+    width: auto;
+}

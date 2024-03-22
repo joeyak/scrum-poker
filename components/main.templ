@@ -1,0 +1,174 @@
+package components
+
+import "strconv"
+import "net/http"
+import "github.com/joeyak/scrum-poker/models"
+import "fmt"
+import "strings"
+
+templ BaseHTML(url string) {
+	<!DOCTYPE html>
+	<html>
+		<head>
+			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.jade.min.css"/>
+			<script src="https://unpkg.com/htmx.org@1.9.10"></script>
+			<script src="https://unpkg.com/htmx.org/dist/ext/ws.js"></script>
+			<link rel="stylesheet" href="/static/root.css"/>
+			<script type="text/javascript" src="/static/root.js"></script>
+		</head>
+		<body>
+			<header>
+				<a href="/">Scrum Poker</a> -
+				@titleSpan("")
+			</header>
+			<main id="main" class="container-fluid" hx-boost="true" hx-target="#main">
+				<div hx-get={ url } hx-trigger="load"></div>
+			</main>
+			<footer>Footer</footer>
+		</body>
+	</html>
+}
+
+templ titleSpan(title string) {
+	<span id="title" hx-swap-oob="true">{ title }</span>
+}
+
+templ StatusPage(status int) {
+	@titleSpan("Opps")
+	<div style="text-align: center;">
+		<h1>{ strconv.Itoa(status) } - { http.StatusText(status) }</h1>
+	</div>
+}
+
+templ RootPage(cards string, errorMessage string) {
+	@titleSpan("Welcome")
+	if errorMessage != "" {
+		<div class="error">{ errorMessage }</div>
+	}
+	<form action="/new" method="POST" hx-push-url="false">
+		<fieldset>
+			<label>
+				Cards
+				<input type="text" name="cards" value={ cards }/>
+				<small>A comma delimited list of cards to have in the session</small>
+			</label>
+		</fieldset>
+		<div>When you create a session, you will get a chance to copy a link with the settings chosen above.</div>
+		<input type="submit" value="Create Session"/>
+	</form>
+}
+
+templ SessionCreated(session models.Session, host string) {
+	@titleSpan("Session Created")
+	<div>Your session has been created.</div>
+	<div><a href={ templ.URL(fmt.Sprintf("/session/%s", session.ID)) }>Join Room</a></div>
+	<br/>
+	<div>Here is a link to give to others to join</div>
+	<div>
+		<code
+			data-tooltip="Click to copy"
+			data-placement="bottom"
+			onClick="copyContent(this)"
+		>{ fmt.Sprintf("%s/session/%s", host, session.ID) }</code>
+	</div>
+	<br/>
+	<div>Here is a link to create the room again</div>
+	<div>
+		<code
+			data-tooltip="Click to copy"
+			data-placement="bottom"
+			onClick="copyContent(this)"
+		>{ fmt.Sprintf("%s?cards=%s", host, strings.Join(session.Cards, ",")) }</code>
+	</div>
+}
+
+templ SessionJoin(session models.Session) {
+	@titleSpan(fmt.Sprintf("Join Session %s", session.ID))
+	<form action={ templ.URL(fmt.Sprintf("/session/%s/join", session.ID)) } method="POST">
+		<fieldset>
+			<div class="grid">
+				<label>
+					Username
+					<input name="name"/>
+				</label>
+				<label>
+					Type
+					<select name="type">
+						<option>{ string(models.UserTypeParticipant) }</option>
+						<option>{ string(models.UserTypeWatcher) }</option>
+					</select>
+				</label>
+			</div>
+			<label style="vertical-alignment: middle;">
+				<input type="checkbox" name="isQA" role="switch"/>
+				Is QA
+			</label>
+		</fieldset>
+		<input type="submit" value="Join Session"/>
+	</form>
+}
+
+templ SessionRoom(session models.Session, currentUser models.User) {
+	@titleSpan(fmt.Sprintf("Session %s - Welcome %s", session.ID, currentUser.Name))
+	<div hx-ext="ws" ws-connect={ fmt.Sprintf("/session/%s/user/%s/ws", session.ID, currentUser.ID) }>
+		@PokerContent(session, currentUser, "")
+	</div>
+}
+
+templ PokerError(message string) {
+	<div id="error" class="error">{ message }</div>
+}
+
+templ PokerContent(session models.Session, currentUser models.User, selectedCard string) {
+	@PokerError("")
+	<article id="cards">
+		<header>Cards - { selectedCard }</header>
+		<div class="poker-grid">
+			for _, card := range session.Cards {
+				<div
+					class={ "poker-card", templ.KV("selected-card", selectedCard == card) }
+					hx-vals={ fmt.Sprintf(`{"card": "%s"}`, card) }
+					ws-send
+				>{ card }</div>
+			}
+		</div>
+	</article>
+	<article id="results">
+		<header>Results</header>
+	</article>
+	<article id="players">
+		<header>Players</header>
+		<div class="grid" style="padding-bottom: 1rem;">
+			<div>User</div>
+			<div>Is QA</div>
+			<div>User Type</div>
+		</div>
+		for _, user := range session.SortedUsers() {
+			<div class="grid">
+				<div>{ user.Name }</div>
+				if user.ID == currentUser.ID {
+					<div>
+						<input
+							type="checkbox"
+							role="switch"
+							hx-vals={ `{"flipQA": true}` }
+							checked?={ currentUser.IsQA }
+							ws-send
+						/>
+					</div>
+					<div>
+						<a
+							class="secondary"
+							data-tooltip="Click to switch type"
+							hx-vals={ `{"flipType": true}` }
+							ws-send
+						>{ string(user.Type) }</a>
+					</div>
+				} else {
+					<div>{ strconv.FormatBool(user.IsQA) }</div>
+					<div>{ string(user.Type) }</div>
+				}
+			</div>
+		}
+	</article>
+}
