@@ -116,59 +116,91 @@ templ SessionRoom(session models.Session, currentUser models.User) {
 }
 
 templ PokerError(message string) {
-	<div id="error" class="error">{ message }</div>
+	<div id="pokerError" class="error">{ message }</div>
 }
 
 templ PokerContent(session models.Session, currentUser models.User) {
-	@PokerError("")
-	<article id="cards">
-		<header>Cards</header>
-		<div class="poker-grid">
-			for _, card := range session.Cards {
-				<div
-					class={ "poker-card", templ.KV("selected-card", currentUser.Card == card) }
-					hx-vals={ fmt.Sprintf(`{"card": "%s"}`, card) }
-					ws-send
-				>{ card }</div>
-			}
-		</div>
-	</article>
-	<article id="results">
-		<header>Results</header>
-	</article>
-	<article id="players">
-		<header>Players</header>
-		<div class="grid player-row">
-			<div>User</div>
-			<div>Is QA</div>
-			<div>User Type</div>
-		</div>
-		for _, user := range session.SortedUsers() {
-			<div class={ "grid", "player-row", templ.KV("has-selected-card", user.Card != "") }>
-				<div>{ user.Name }</div>
-				if user.ID == currentUser.ID {
-					<div>
-						<input
-							type="checkbox"
-							role="switch"
-							hx-vals={ `{"flipQA": true}` }
-							checked?={ currentUser.IsQA }
+	<div id="pokerContent">
+		@PokerError("")
+		<article>
+			<header>Cards</header>
+			<div class="poker-grid">
+				for _, card := range session.Cards {
+					<div
+						class={ "poker-card", templ.KV("selected-card", currentUser.Card == card) }
+						hx-vals={ fmt.Sprintf(`{"card": "%s", "undoSelection": %t}`, card, currentUser.Card == card) }
+						if !session.Showing {
 							ws-send
-						/>
-					</div>
-					<div>
-						<a
-							class="secondary"
-							data-tooltip="Click to switch type"
-							hx-vals={ `{"flipType": true}` }
-							ws-send
-						>{ string(user.Type) }</a>
-					</div>
-				} else {
-					<div>{ strconv.FormatBool(user.IsQA) }</div>
-					<div>{ string(user.Type) }</div>
+						}
+					>{ card }</div>
 				}
 			</div>
-		}
-	</article>
+		</article>
+		<article>
+			<header>Results</header>
+			<div class="grid">
+				if results, ok := session.Calc(); ok {
+					if session.Showing {
+						<button hx-vals={ `{"resetResults": true}` } ws-send>Reset</button>
+						<div class="results">
+							<div>Avg: { results.Points() }</div>
+							<div>Distribution: { results.Distribution() }</div>
+							if qaPoints := results.QAPoints(); qaPoints != "" {
+								<div>QA Avg: { qaPoints }</div>
+							}
+							if qaDist := results.QADistribution(); qaDist != "" {
+								<div>QA Distribution: { qaDist }</div>
+							}
+						</div>
+					} else {
+						<button hx-vals={ `{"showResults": true}` } ws-send>Show Results</button>
+					}
+				} else {
+					<div>All participants much choose a card</div>
+				}
+			</div>
+		</article>
+		<article>
+			<header>Players</header>
+			<div class="grid player-row">
+				<div>User</div>
+				<div>Is QA</div>
+				<div>User Type</div>
+			</div>
+			for _, user := range session.SortedUsers() {
+				<div class={ "grid", "player-row", templ.KV("has-selected-card", user.Card != ""), templ.KV("not-active", !user.Active) }>
+					<div>{ user.Name }</div>
+					if user.ID == currentUser.ID {
+						<div>
+							<input
+								type="checkbox"
+								role="switch"
+								hx-vals={ `{"flipQA": true}` }
+								checked?={ currentUser.IsQA }
+								ws-send
+								if session.Showing {
+									disabled
+								}
+							/>
+						</div>
+						<div>
+							if session.Showing {
+								{ string(user.Type) }
+							} else {
+								<a
+									class="secondary"
+									data-tooltip="Click to switch type"
+									hx-vals={ `{"flipType": true}` }
+									ws-send
+								>{ string(user.Type) }</a>
+							}
+						</div>
+					} else {
+						<div>{ strconv.FormatBool(user.IsQA) }</div>
+						<div>{ string(user.Type) }</div>
+					}
+				</div>
+			}
+		</article>
+	</div>
 }

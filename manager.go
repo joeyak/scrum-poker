@@ -23,6 +23,7 @@ func NewSessionManager() SessionManager {
 					Name:     "Joey",
 					Type:     models.UserTypeParticipant,
 					UpdateCh: make(chan struct{}),
+					Active:   true,
 				},
 			},
 		},

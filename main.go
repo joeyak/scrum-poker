@@ -155,10 +155,12 @@ func handleSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sessionAttr := slog.String("session", session.ID)
+
 	renderSessionJoin := func() {
 		err := components.SessionJoin(*session).Render(r.Context(), w)
 		if err != nil {
-			slog.Error("could not render session join page", err)
+			slog.Error("could not render session join page", sessionAttr, err)
 		}
 	}
 
@@ -179,9 +181,10 @@ func handleSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user.Active = true
 	err = components.SessionRoom(*session, *user).Render(r.Context(), w)
 	if err != nil {
-		slog.Error("could not render root page", err)
+		slog.Error("could not render root page", sessionAttr, "user", user.Name, err)
 	}
 
 	go session.SendUpdates()
@@ -197,7 +200,7 @@ func handleSessionJoin(w http.ResponseWriter, r *http.Request) {
 	_, err := r.Cookie(session.ID)
 	if err != nil {
 		user := session.NewUser(r.FormValue("name"), models.UserType(r.FormValue("type")), r.Form.Has("isQA"))
-		slog.Info("user joined", "name", user.Name, "type", user.Type, "qa", user.IsQA)
+		slog.Info("user joined", "session", session.ID, "name", user.Name, "type", user.Type, "qa", user.IsQA)
 
 		http.SetCookie(w, &http.Cookie{
 			Name:    session.ID,
@@ -223,9 +226,18 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	logAttrs := slog.Group("", slog.String("session", session.ID), slog.String("user", user.Name))
+	slog.Debug("ws connection opening", logAttrs)
+
+	defer func() {
+		slog.Debug("ws connection closing", logAttrs)
+		user.Active = false
+		session.SendUpdates()
+	}()
+
 	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
-		slog.Error("could not accept websocket connection", err)
+		slog.Error("could not accept websocket connection", logAttrs, err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -235,14 +247,17 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 		var buff bytes.Buffer
 		err := components.PokerError("An error occured").Render(r.Context(), &buff)
 		if err != nil {
-			slog.Error("could not render poker error", err)
+			slog.Error("could not render poker error", logAttrs, err)
 		}
 
 		err = conn.Write(r.Context(), websocket.MessageText, buff.Bytes())
 		if err != nil {
-			slog.Error("could not write to websocket for poker error", err)
+			slog.Error("could not write to websocket for poker error", logAttrs, err)
 		}
 	}
+
+	user.Active = true
+	session.SendUpdates()
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -252,30 +267,39 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 			_, message, err := conn.Read(r.Context())
 			if err != nil {
 				if !errors.As(err, &websocket.CloseError{}) {
-					slog.Error("could not read connection", err)
+					slog.Error("could not read connection", logAttrs, err)
 				}
 				cancel()
 				return
 			}
 
-			slog.Debug("Websock data recieved", "message", string(message))
+			slog.Debug("Websock data recieved", logAttrs, "message", string(message))
 
 			value := struct {
-				Card     string
-				FlipType bool
-				FlipQA   bool
+				Card          string
+				UndoSelection bool
+				FlipType      bool
+				FlipQA        bool
+				ShowResults   bool
+				ResetResults  bool
 			}{}
 			err = json.Unmarshal(message, &value)
 			if err != nil {
-				slog.Error("could not unmarshal value", err)
+				slog.Error("could not unmarshal value", logAttrs, err)
 				renderError()
 				continue
 			}
 
-			slog.Info("A", "value", value)
+			if value.ResetResults {
+				session.Reset()
+				continue
+			}
 
 			if value.Card != "" {
 				user.Card = value.Card
+				if value.UndoSelection {
+					user.Card = ""
+				}
 			}
 
 			if value.FlipQA {
@@ -290,6 +314,11 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
+			session.Showing = false
+			if value.ShowResults {
+				session.Showing = true
+			}
+
 			session.SendUpdates()
 		}
 	}()
@@ -297,21 +326,20 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-user.UpdateCh:
-			slog.Debug("Update Recieved", "user", user.Name)
 		case <-ctx.Done():
-			slog.Debug("DONE")
+			slog.Debug("connection closed", logAttrs)
 			return
 		}
 
 		var buff bytes.Buffer
 		err = components.PokerContent(*session, *user).Render(r.Context(), &buff)
 		if err != nil {
-			slog.Error("could not render poker content", err)
+			slog.Error("could not render poker content", logAttrs, err)
 		}
 
 		err = conn.Write(r.Context(), websocket.MessageText, buff.Bytes())
 		if err != nil {
-			slog.Error("could not write to websocket connection for poker content", err)
+			slog.Error("could not write to websocket connection for poker content", logAttrs, err)
 		}
 	}
 }
