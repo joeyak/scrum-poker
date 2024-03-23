@@ -21,7 +21,7 @@ templ BaseHTML(url string) {
 			<main id="main" class="container-fluid" hx-boost="true" hx-target="#main">
 				<div hx-get={ url } hx-trigger="load"></div>
 			</main>
-			<footer>Footer</footer>
+			<footer>This is a footer. For the horde!!!</footer>
 		</body>
 	</html>
 }
@@ -241,8 +241,8 @@ templ cardResults(result models.CalcResults) {
 	<div class="results">
 		if result.Name != "" {
 			<div class="soft">{ result.Name }</div>
+			<hr/>
 		}
-		<hr/>
 		<div>Avg: { result.Points() }</div>
 		<div>Distribution: { result.Distribution() }</div>
 		if qaPoints := result.QAPoints(); qaPoints != "" {
