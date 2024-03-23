@@ -68,6 +68,7 @@ func main() {
 	mux.HandleFunc("GET /session/{sessionID}", htmxMiddleware(handleSession))
 	mux.HandleFunc("POST /session/{sessionID}", htmxMiddleware(handleSession))
 	mux.HandleFunc("POST /session/{sessionID}/join", handleSessionJoin)
+	mux.HandleFunc("/session/{sessionID}/user/{userID}/exit", handleSessionExit)
 	mux.HandleFunc("/session/{sessionID}/user/{userID}/ws", handleUserWs)
 
 	slog.Info("Starting server", "addr", addr)
@@ -220,6 +221,22 @@ func handleSessionJoin(w http.ResponseWriter, r *http.Request) {
 			Session: session.SessionInfo,
 		})
 	}
+
+	http.Redirect(w, r, fmt.Sprintf("/session/%s", session.ID), http.StatusFound)
+}
+
+func handleSessionExit(w http.ResponseWriter, r *http.Request) {
+	session := sessionManager.Get(r.PathValue("sessionID"))
+	if session == nil {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+
+	userID := r.PathValue("userID")
+	slog.Info("removing user from session", "userID", userID)
+
+	delete(session.Users, userID)
+	session.SendUpdates()
 
 	http.Redirect(w, r, fmt.Sprintf("/session/%s", session.ID), http.StatusFound)
 }

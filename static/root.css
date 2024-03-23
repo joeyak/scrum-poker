@@ -1,3 +1,7 @@
+:root {
+    --soft-color: color-mix(in srgb, var(--pico-color) 50%, var(--pico-background-color));
+}
+
 html,
 body {
     height: 100%;
@@ -23,8 +27,12 @@ body>footer {
     color: red;
 }
 
+.soft {
+    color: var(--soft-color);
+}
+
 .poker-grid-border {
-    border: 2px solid color-mix(in srgb, var(--pico-color) 50%, var(--pico-background-color));
+    border: 2px solid var(--soft-color);
     border-radius: 20px;
     padding-top: 0.5rem;
     padding-bottom: 0.5rem;
@@ -89,4 +97,23 @@ body>footer {
     padding: 0.25rem 0.5rem;
     margin-bottom: 0;
     width: auto;
+}
+
+
+.exit-button {
+    margin: 0;
+    margin-left: var(--pico-spacing);
+    padding: 0;
+    float: right;
+    display: block;
+    width: 1rem;
+    height: 1rem;
+    border: none;
+    background-image: var(--pico-icon-close);
+    background-position: center;
+    background-size: auto 1rem;
+    background-repeat: no-repeat;
+    background-color: transparent;
+    opacity: .5;
+    transition: opacity var(--pico-transition);
 }
