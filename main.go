@@ -232,11 +232,14 @@ func handleSessionExit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := r.PathValue("userID")
-	slog.Info("removing user from session", "userID", userID)
-
-	delete(session.Users, userID)
-	session.SendUpdates()
+	user := session.Users[r.PathValue("userID")]
+	if user != nil {
+		slog.Info("removing user from session", "session", session.ID, "user", user.Name)
+		user.Active = false
+		close(user.UpdateCh)
+		delete(session.Users, user.ID)
+		session.SendUpdates()
+	}
 
 	http.Redirect(w, r, fmt.Sprintf("/session/%s", session.ID), http.StatusFound)
 }
@@ -271,9 +274,14 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.CloseNow()
 
-	renderError := func() {
+	renderError := func(message string, redirect bool) {
+		redirectLink := ""
+		if redirect {
+			redirectLink = fmt.Sprintf("/session/%s", session.ID)
+		}
+
 		var buff bytes.Buffer
-		err := components.PokerError("An error occured").Render(r.Context(), &buff)
+		err := components.PokerError(message, redirectLink).Render(r.Context(), &buff)
 		if err != nil {
 			slog.Error("could not render poker error", logAttrs, err)
 		}
@@ -285,7 +293,7 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user.Active = true
-	// session.SendUpdates()
+	session.SendUpdates()
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -314,7 +322,7 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 			err = json.Unmarshal(message, &value)
 			if err != nil {
 				slog.Error("could not unmarshal value", logAttrs, err)
-				renderError()
+				renderError("An error occured while retrieving data", false)
 				continue
 			}
 
@@ -353,7 +361,11 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		select {
-		case <-user.UpdateCh:
+		case _, ok := <-user.UpdateCh:
+			if !ok {
+				renderError("Your connection has been forcibly closed. Redirecting...", true)
+				return
+			}
 		case <-ctx.Done():
 			slog.Debug("connection closed", logAttrs)
 			return

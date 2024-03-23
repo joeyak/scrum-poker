@@ -10,7 +10,7 @@ templ BaseHTML(url string) {
 	<!DOCTYPE html>
 	<html>
 		<head>
-			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.jade.min.css"/>
+			<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.cyan.min.css"/>
 			<script src="https://unpkg.com/htmx.org@1.9.10"></script>
 			<script src="https://unpkg.com/htmx.org/dist/ext/ws.js"></script>
 			<link rel="stylesheet" href="/static/root.css"/>
@@ -123,23 +123,32 @@ templ SessionJoin(session models.Session, info models.CookieData) {
 	</form>
 }
 
+func exitLink(session models.Session, user models.User) string {
+	return fmt.Sprintf("/session/%s/user/%s/exit", session.ID, user.ID)
+}
+
 templ SessionRoom(session models.Session, currentUser models.User) {
-	@header(fmt.Sprintf("Session %s - Welcome %s", session.ID, currentUser.Name), fmt.Sprintf("/session/%s/user/%s/exit", session.ID, currentUser.ID))
+	@header(fmt.Sprintf("Session %s - Welcome %s", session.ID, currentUser.Name), exitLink(session, currentUser))
 	<div hx-ext="ws" ws-connect={ fmt.Sprintf("/session/%s/user/%s/ws", session.ID, currentUser.ID) }>
 		@PokerContent(session, currentUser)
 	</div>
 }
 
-templ PokerError(message string) {
-	<div id="pokerError" class="error">{ message }</div>
+templ PokerError(message, redirectLink string) {
+	<div id="pokerError" class="error">
+		{ message }
+		if redirectLink != "" {
+			<div hx-get={ redirectLink } hx-trigger="load delay:5s"></div>
+		}
+	</div>
 }
 
 templ PokerContent(session models.Session, currentUser models.User) {
 	<div id="pokerContent">
-		@PokerError("")
+		@PokerError("", "")
 		<article>
 			<header>Cards</header>
-			<div class={ templ.KV("grid", len(session.Cards) <= 5) }>
+			<div class={ templ.KV("grid", len(session.Cards)*len(session.Rows) <= 16) }>
 				for _, row := range session.Rows {
 					<div>
 						if len(session.Rows) > 1 {
@@ -148,7 +157,7 @@ templ PokerContent(session models.Session, currentUser models.User) {
 						<div class={ "poker-grid", templ.KV("poker-grid-border", len(session.Rows) > 1) }>
 							for _, card := range session.Cards {
 								<div
-									class={ "poker-card", templ.KV("selected-card", currentUser.Cards[row] == card) }
+									class={ "poker-card", templ.KV("selected-card", currentUser.Cards[row] == card), templ.KV("no-hover", session.Showing) }
 									hx-vals={ fmt.Sprintf(`{"card": "%s", "row": "%s", "undoSelection": %t}`, card, row, currentUser.Cards[row] == card) }
 									if !session.Showing {
 										ws-send
@@ -183,6 +192,7 @@ templ PokerContent(session models.Session, currentUser models.User) {
 				<div>User</div>
 				<div>Is QA</div>
 				<div>User Type</div>
+				<div></div>
 			</div>
 			for _, user := range session.ReadyUsers() {
 				<div class={ "grid", "player-row", templ.KV("has-selected-card", user.Ready), templ.KV("not-active", !user.Active) }>
@@ -216,6 +226,11 @@ templ PokerContent(session models.Session, currentUser models.User) {
 						<div>{ strconv.FormatBool(user.IsQA) }</div>
 						<div>{ string(user.Type) }</div>
 					}
+					<div>
+						if user.ID != currentUser.ID {
+							<button class="exit-button" hx-get={ exitLink(session, user.User) } hx-push-url="false"></button>
+						}
+					</div>
 				</div>
 			}
 		</article>

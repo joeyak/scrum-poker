@@ -16,7 +16,7 @@ func NewSessionManager() SessionManager {
 		"cf7e5d11-45b9-401a-8c13-4ddddab765d8": {
 			SessionInfo: models.SessionInfo{
 				Cards: []string{"1", "2", "3"},
-				Rows:  []string{"A", "B", "C"},
+				Rows:  []string{"Familiarity", "Complexity", "Size"},
 			},
 			ID:      "cf7e5d11-45b9-401a-8c13-4ddddab765d8",
 			Expires: time.Now().Add(time.Hour * 200000),

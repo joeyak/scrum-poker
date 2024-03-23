@@ -1,5 +1,14 @@
 :root {
     --soft-color: color-mix(in srgb, var(--pico-color) 50%, var(--pico-background-color));
+    --accent-color-percent: 80%;
+    --poker-color-percent: 85%;
+    --poker-color-hover-percent: calc(var(--poker-color-percent) - 10%);
+}
+
+@media only screen and (prefers-color-scheme: dark) {
+    :root {
+        --accent-color-percent: 94%;
+    }
 }
 
 html,
@@ -14,7 +23,8 @@ body {
 
 body>header,
 body>footer {
-    background-color: color-mix(in srgb, var(--pico-background-color) 98%, var(--pico-contrast));
+    background-color: color-mix(in srgb, var(--pico-background-color) var(--accent-color-percent), var(--pico-primary));
+    ;
     padding-left: 1rem;
     padding-right: 1rem;
 }
@@ -24,7 +34,7 @@ body>footer {
 }
 
 .error {
-    color: red;
+    color: color-mix(in srgb, #ff0000 75%, var(--pico-color));
 }
 
 .soft {
@@ -45,8 +55,12 @@ body>footer {
 }
 
 .poker-card {
+    --mix-color: var(--pico-contrast);
+    --mix-percent: var(--poker-color-percent);
+    --color: var(--pico-color);
     --line-height: 6rem;
-    background-color: color-mix(in srgb, var(--pico-card-background-color) 98%, var(--pico-contrast));
+    background-color: color-mix(in srgb, var(--pico-card-background-color) var(--mix-percent), var(--mix-color));
+    color: var(--color);
     text-align: center;
     line-height: var(--line-height);
     height: var(--line-height);
@@ -55,22 +69,22 @@ body>footer {
     transition: 0.25s;
 }
 
-.poker-card:not(.selected-card):hover {
-    background-color: color-mix(in srgb, var(--pico-card-background-color) 94%, var(--pico-contrast));
+.poker-card:not(.no-hover):hover {
+    --mix-percent: var(--poker-color-hover-percent);
 }
 
 .selected-card {
-    background-color: color-mix(in srgb, var(--pico-card-background-color) 94%, green);
-    color: color-mix(in srgb, var(--pico-color) 10%, green);
+    --mix-color: var(--pico-primary);
+    --color: color-mix(in srgb, var(--pico-color) 10%, var(--pico-primary));
 }
 
 .poker-grid:has(.selected-card)>.poker-card:not(.selected-card) {
-    background-color: color-mix(in srgb, var(--pico-card-background-color) 94%, gray);
-    color: color-mix(in srgb, var(--pico-color) 10%, gray);
+    --mix-color: gray;
+    --color: color-mix(in srgb, var(--pico-color) 10%, gray);
 }
 
 .has-selected-card {
-    background-color: color-mix(in srgb, var(--pico-card-background-color) 94%, green);
+    background-color: color-mix(in srgb, var(--pico-card-background-color) var(--accent-color-percent), var(--pico-primary));
 }
 
 .player-row {
@@ -81,7 +95,7 @@ body>footer {
 }
 
 .player-row.not-active {
-    background-color: color-mix(in srgb, var(--pico-card-background-color) 94%, gray);
+    background-color: color-mix(in srgb, var(--pico-card-background-color) var(--accent-color-percent), gray);
     color: color-mix(in srgb, var(--pico-color) 10%, gray);
 }
 
@@ -104,7 +118,6 @@ body>footer {
     margin: 0;
     margin-left: var(--pico-spacing);
     padding: 0;
-    float: right;
     display: block;
     width: 1rem;
     height: 1rem;
