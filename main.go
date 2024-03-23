@@ -26,7 +26,7 @@ import (
 
 var (
 	// Default Room Settings
-	defaultCards = "1,2,3,5,8,13,21"
+	defaultCards = []string{"1", "2", "3", "5", "8", "13"}
 
 	//go:embed static/*
 	staticFS embed.FS
@@ -38,7 +38,6 @@ func main() {
 	var addr string
 	var debugLog bool
 	flag.StringVar(&addr, "addr", "0.0.0.0:8080", "Server Address")
-	flag.StringVar(&defaultCards, "cards", defaultCards, "Default Cards")
 	flag.BoolVar(&debugLog, "debug", false, "Enable Debug Logging")
 	flag.Parse()
 
@@ -96,11 +95,6 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 			slog.Error("could not render 404 page", err)
 		}
 		return
-	}
-
-	cards := r.URL.Query().Get("cards")
-	if cards == "" {
-		cards = defaultCards
 	}
 
 	err := components.RootPage(getInfoCookie(w, r), "").Render(r.Context(), w)
@@ -386,7 +380,7 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 
 func getInfoCookie(w http.ResponseWriter, r *http.Request) models.CookieData {
 	resetInfoCookie := func() { http.SetCookie(w, &http.Cookie{Name: "info", Path: "/", MaxAge: -1}) }
-	info := models.CookieData{}
+	info := models.CookieData{Session: models.NewSessionInfo(defaultCards, nil)}
 	if cookie, _ := r.Cookie("info"); cookie != nil {
 		data, err := base64.StdEncoding.DecodeString(cookie.Value)
 		if err != nil {

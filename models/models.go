@@ -22,6 +22,16 @@ type SessionInfo struct {
 	Rows  []string
 }
 
+func NewSessionInfo(cards, rows []string) SessionInfo {
+	if len(rows) == 0 {
+		rows = []string{""}
+	}
+	return SessionInfo{
+		Cards: cards,
+		Rows:  rows,
+	}
+}
+
 type Session struct {
 	SessionInfo
 	ID      string
@@ -38,13 +48,10 @@ func NewSession(ID string, Expires time.Time, cards, rows []string) *Session {
 		rows = []string{""}
 	}
 	return &Session{
-		SessionInfo: SessionInfo{
-			Cards: cards,
-			Rows:  rows,
-		},
-		ID:      ID,
-		Expires: Expires,
-		Users:   map[string]*User{},
+		SessionInfo: NewSessionInfo(cards, rows),
+		ID:          ID,
+		Expires:     Expires,
+		Users:       map[string]*User{},
 	}
 }
 
