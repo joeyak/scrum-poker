@@ -102,7 +102,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		cards = defaultCards
 	}
 
-	err := components.RootPage(cards, "").Render(r.Context(), w)
+	err := components.RootPage(getInfoCookie(w, r), "").Render(r.Context(), w)
 	if err != nil {
 		slog.Error("could not render root page", err)
 	}
@@ -124,17 +124,21 @@ func handleStatic(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleNewSession(w http.ResponseWriter, r *http.Request) {
-	cardsText := r.FormValue("cards")
+	cards := strings.Split(r.FormValue("cards"), ",")
+	rows := strings.Split(r.FormValue("rows"), ",")
+
+	info := getInfoCookie(w, r)
+	info.Session.Cards = cards
+	info.Session.Rows = rows
 
 	errorResponse := func(message string, err error) {
 		slog.Error(message, err)
-		err = components.RootPage(cardsText, strings.ToUpper(message[0:1])+message[1:]).Render(r.Context(), w)
+		err = components.RootPage(info, strings.ToUpper(message[0:1])+message[1:]).Render(r.Context(), w)
 		if err != nil {
 			slog.Error("could not render root page", err)
 		}
 	}
 
-	cards := strings.Split(cardsText, ",")
 	for _, s := range cards {
 		_, err := strconv.ParseFloat(s, 64)
 		if err != nil {
@@ -143,7 +147,9 @@ func handleNewSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	session := sessionManager.New(cards)
+	setInfoCookie(w, info)
+
+	session := sessionManager.New(cards, rows)
 	err := components.SessionCreated(*session, r.Host).Render(r.Context(), w)
 	if err != nil {
 		slog.Error("could not render root page", err)
@@ -160,22 +166,7 @@ func handleSession(w http.ResponseWriter, r *http.Request) {
 	sessionAttr := slog.String("session", session.ID)
 
 	renderSessionJoin := func() {
-		resetInfoCookie := func() { http.SetCookie(w, &http.Cookie{Name: session.ID, Path: "/", MaxAge: -1}) }
-
-		info := models.UserInfo{}
-		if cookie, _ := r.Cookie("info"); cookie != nil {
-			data, err := base64.StdEncoding.DecodeString(cookie.Value)
-			if err != nil {
-				slog.Error("could not decode cookie string", err)
-				resetInfoCookie()
-			} else {
-				err := json.Unmarshal(data, &info)
-				if err != nil {
-					slog.Error("could not unmarshal cookie data")
-					resetInfoCookie()
-				}
-			}
-		}
+		info := getInfoCookie(w, r)
 
 		err := components.SessionJoin(*session, info).Render(r.Context(), w)
 		if err != nil {
@@ -224,16 +215,10 @@ func handleSessionJoin(w http.ResponseWriter, r *http.Request) {
 			Path:    "/",
 		})
 
-		info, err := json.Marshal(user.UserInfo)
-		if err != nil {
-			slog.Error("could not marshal user info", err)
-		} else {
-			http.SetCookie(w, &http.Cookie{
-				Name:  "info",
-				Value: base64.StdEncoding.EncodeToString(info),
-				Path:  "/",
-			})
-		}
+		setInfoCookie(w, models.CookieData{
+			User:    user.UserInfo,
+			Session: session.SessionInfo,
+		})
 	}
 
 	http.Redirect(w, r, fmt.Sprintf("/session/%s", session.ID), http.StatusFound)
@@ -283,7 +268,7 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user.Active = true
-	session.SendUpdates()
+	// session.SendUpdates()
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -302,7 +287,7 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 			slog.Debug("Websock data recieved", logAttrs, "message", string(message))
 
 			value := struct {
-				Card          string
+				Card, Row     string
 				UndoSelection bool
 				FlipType      bool
 				FlipQA        bool
@@ -322,9 +307,9 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if value.Card != "" {
-				user.Card = value.Card
+				user.Cards[value.Row] = value.Card
 				if value.UndoSelection {
-					user.Card = ""
+					delete(user.Cards, value.Row)
 				}
 			}
 
@@ -367,5 +352,37 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			slog.Error("could not write to websocket connection for poker content", logAttrs, err)
 		}
+	}
+}
+
+func getInfoCookie(w http.ResponseWriter, r *http.Request) models.CookieData {
+	resetInfoCookie := func() { http.SetCookie(w, &http.Cookie{Name: "info", Path: "/", MaxAge: -1}) }
+	info := models.CookieData{}
+	if cookie, _ := r.Cookie("info"); cookie != nil {
+		data, err := base64.StdEncoding.DecodeString(cookie.Value)
+		if err != nil {
+			slog.Error("could not decode cookie string", err)
+			resetInfoCookie()
+		} else {
+			err := json.Unmarshal(data, &info)
+			if err != nil {
+				slog.Error("could not unmarshal cookie data")
+				resetInfoCookie()
+			}
+		}
+	}
+	return info
+}
+
+func setInfoCookie(w http.ResponseWriter, info models.CookieData) {
+	data, err := json.Marshal(info)
+	if err != nil {
+		slog.Error("could not marshal info", err)
+	} else {
+		http.SetCookie(w, &http.Cookie{
+			Name:  "info",
+			Value: base64.StdEncoding.EncodeToString(data),
+			Path:  "/",
+		})
 	}
 }

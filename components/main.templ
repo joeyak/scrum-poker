@@ -40,17 +40,22 @@ templ StatusPage(status int) {
 	</div>
 }
 
-templ RootPage(cards string, errorMessage string) {
+templ RootPage(info models.CookieData, errorMessage string) {
 	@titleSpan("Welcome")
 	if errorMessage != "" {
 		<div class="error">{ errorMessage }</div>
 	}
-	<form action="/new" method="POST" hx-push-url="false">
+	<form id="newSessionForm" action="/new" method="POST" hx-push-url="false">
 		<fieldset>
 			<label>
 				Cards
-				<input type="text" name="cards" value={ cards }/>
+				<input type="text" name="cards" value={ strings.Join(info.Session.Cards, ",") }/>
 				<small>A comma delimited list of cards to have in the session</small>
+			</label>
+			<label>
+				Rows
+				<input type="text" name="rows" value={ strings.Join(info.Session.Rows, ",") }/>
+				<small>A comma delimited list of row labels to have in the session. Each row will be added up for a total points.</small>
 			</label>
 		</fieldset>
 		<div>When you create a session, you will get a chance to copy a link with the settings chosen above.</div>
@@ -72,36 +77,36 @@ templ SessionCreated(session models.Session, host string) {
 		>{ fmt.Sprintf("%s/session/%s", host, session.ID) }</code>
 	</div>
 	<br/>
-	<div>Here is a link to create the room again</div>
+	<div>Here is a link to create the room again. This info is also saved in a cookie for auto filling next time.</div>
 	<div>
 		<code
 			data-tooltip="Click to copy"
 			data-placement="bottom"
 			onClick="copyContent(this)"
-		>{ fmt.Sprintf("%s?cards=%s", host, strings.Join(session.Cards, ",")) }</code>
+		>{ fmt.Sprintf("%s?cards=%s&rows=%s", host, strings.Join(session.Cards, ","), strings.Join(session.Rows, ",")) }</code>
 	</div>
 }
 
-templ SessionJoin(session models.Session, info models.UserInfo) {
+templ SessionJoin(session models.Session, info models.CookieData) {
 	@titleSpan(fmt.Sprintf("Join Session %s", session.ID))
 	<form action={ templ.URL(fmt.Sprintf("/session/%s/join", session.ID)) } method="POST">
 		<fieldset>
 			<div class="grid">
 				<label>
 					Username
-					<input name="name" value={ info.Name }/>
+					<input name="name" value={ info.User.Name }/>
 				</label>
 				<label>
 					Type
 					<select name="type">
 						for _, userType := range []models.UserType{models.UserTypeParticipant, models.UserTypeWatcher} {
-							<option selected?={ userType == info.Type }>{ string(userType) }</option>
+							<option selected?={ userType == info.User.Type }>{ string(userType) }</option>
 						}
 					</select>
 				</label>
 			</div>
 			<label style="vertical-alignment: middle;">
-				<input type="checkbox" name="isQA" role="switch" checked?={ info.IsQA }/>
+				<input type="checkbox" name="isQA" role="switch" checked?={ info.User.IsQA }/>
 				Is QA
 			</label>
 		</fieldset>
@@ -125,34 +130,36 @@ templ PokerContent(session models.Session, currentUser models.User) {
 		@PokerError("")
 		<article>
 			<header>Cards</header>
-			<div class="poker-grid">
-				for _, card := range session.Cards {
-					<div
-						class={ "poker-card", templ.KV("selected-card", currentUser.Card == card) }
-						hx-vals={ fmt.Sprintf(`{"card": "%s", "undoSelection": %t}`, card, currentUser.Card == card) }
-						if !session.Showing {
-							ws-send
+			<div class={ templ.KV("grid", len(session.Cards) <= 5) }>
+				for _, row := range session.Rows {
+					<div>
+						if len(session.Rows) > 1 {
+							<small style="padding-left: 0.8rem;">{ row }</small>
 						}
-					>{ card }</div>
+						<div class={ "poker-grid", templ.KV("poker-grid-border", len(session.Rows) > 1) }>
+							for _, card := range session.Cards {
+								<div
+									class={ "poker-card", templ.KV("selected-card", currentUser.Cards[row] == card) }
+									hx-vals={ fmt.Sprintf(`{"card": "%s", "row": "%s", "undoSelection": %t}`, card, row, currentUser.Cards[row] == card) }
+									if !session.Showing {
+										ws-send
+									}
+								>{ card }</div>
+							}
+						</div>
+					</div>
 				}
 			</div>
 		</article>
 		<article>
 			<header>Results</header>
 			<div class="grid">
-				if results, ok := session.Calc(); ok {
+				if results,  ok := session.Calc(); ok || session.Showing {
 					if session.Showing {
 						<button class="secondary" hx-vals={ `{"resetResults": true}` } ws-send>Reset</button>
-						<div class="results">
-							<div>Avg: { results.Points() }</div>
-							<div>Distribution: { results.Distribution() }</div>
-							if qaPoints := results.QAPoints(); qaPoints != "" {
-								<div>QA Avg: { qaPoints }</div>
-							}
-							if qaDist := results.QADistribution(); qaDist != "" {
-								<div>QA Distribution: { qaDist }</div>
-							}
-						</div>
+						for _, result := range results {
+							@cardResults(result)
+						}
 					} else {
 						<button hx-vals={ `{"showResults": true}` } ws-send>Show Results</button>
 					}
@@ -168,8 +175,8 @@ templ PokerContent(session models.Session, currentUser models.User) {
 				<div>Is QA</div>
 				<div>User Type</div>
 			</div>
-			for _, user := range session.SortedUsers() {
-				<div class={ "grid", "player-row", templ.KV("has-selected-card", user.Card != ""), templ.KV("not-active", !user.Active) }>
+			for _, user := range session.ReadyUsers() {
+				<div class={ "grid", "player-row", templ.KV("has-selected-card", user.Ready), templ.KV("not-active", !user.Active) }>
 					<div>{ user.Name }</div>
 					if user.ID == currentUser.ID {
 						<div>
@@ -203,5 +210,21 @@ templ PokerContent(session models.Session, currentUser models.User) {
 				</div>
 			}
 		</article>
+	</div>
+}
+
+templ cardResults(result models.CalcResults) {
+	<div class="results">
+		if result.Name != "" {
+			<div>~{ result.Name }~</div>
+		}
+		<hr/>
+		<div>Avg: { result.Points() }</div>
+		<div>Distribution: { result.Distribution() }</div>
+		if qaPoints := result.QAPoints(); qaPoints != "" {
+			<hr/>
+			<div>QA Avg: { qaPoints }</div>
+			<div>QA Distribution: { result.QADistribution() }</div>
+		}
 	</div>
 }
