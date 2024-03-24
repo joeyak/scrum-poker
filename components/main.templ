@@ -21,6 +21,10 @@ templ BaseHTML(url string) {
 			<main id="main" class="container-fluid" hx-boost="true" hx-target="#main">
 				<div hx-get={ url } hx-trigger="load"></div>
 			</main>
+			<footer>
+				This is an open source project by joeyak, under MIT license. Source at
+				<a href="https://github.com/joeyak/scrum-poker" target="_blank" rel="noopener noreferrer" hx-disable>Github</a>
+			</footer>
 		</body>
 	</html>
 }
