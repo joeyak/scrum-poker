@@ -21,7 +21,6 @@ templ BaseHTML(url string) {
 			<main id="main" class="container-fluid" hx-boost="true" hx-target="#main">
 				<div hx-get={ url } hx-trigger="load"></div>
 			</main>
-			<footer>This is a footer. For the horde!!!</footer>
 		</body>
 	</html>
 }
@@ -67,7 +66,6 @@ templ RootPage(info models.CookieData, errorMessage string) {
 				<small>A comma delimited list of row labels to have in the session. Each row will be added up for a total points.</small>
 			</label>
 		</fieldset>
-		<div>When you create a session, you will get a chance to copy a link with the settings chosen above.</div>
 		<input type="submit" value="Create Session"/>
 	</form>
 }

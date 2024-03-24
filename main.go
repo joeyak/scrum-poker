@@ -97,7 +97,15 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := components.RootPage(getInfoCookie(w, r), "").Render(r.Context(), w)
+	info := getInfoCookie(w, r)
+	if r.URL.Query().Has("cards") {
+		info.Session.Cards = strings.Split(r.URL.Query().Get("cards"), ",")
+	}
+	if r.URL.Query().Has("rows") {
+		info.Session.Rows = strings.Split(r.URL.Query().Get("rows"), ",")
+	}
+
+	err := components.RootPage(info, "").Render(r.Context(), w)
 	if err != nil {
 		slog.Error("could not render root page", err)
 	}
@@ -143,9 +151,9 @@ func handleNewSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setInfoCookie(w, info)
-
 	session := sessionManager.New(cards, rows)
-	err := components.SessionCreated(*session, r.Host).Render(r.Context(), w)
+
+	err := components.SessionCreated(*session, r.Header.Get("Origin")).Render(r.Context(), w)
 	if err != nil {
 		slog.Error("could not render root page", err)
 	}
@@ -260,7 +268,7 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 		session.SendUpdates()
 	}()
 
-	conn, err := websocket.Accept(w, r, nil)
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		slog.Error("could not accept websocket connection", logAttrs, err)
 		w.WriteHeader(http.StatusInternalServerError)
