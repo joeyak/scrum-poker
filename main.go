@@ -25,6 +25,8 @@ import (
 )
 
 var (
+	origin string
+
 	// Default Room Settings
 	defaultCards = []string{"1", "2", "3", "5", "8", "13"}
 
@@ -38,6 +40,7 @@ func main() {
 	var addr string
 	var debugLog bool
 	flag.StringVar(&addr, "addr", "0.0.0.0:8080", "Server Address")
+	flag.StringVar(&origin, "origin", "", "Origin to allow CORs. If empty the websocket will not check for the origin. Example: example.com for website www.example.com")
 	flag.BoolVar(&debugLog, "debug", false, "Enable Debug Logging")
 	flag.Parse()
 
@@ -268,7 +271,13 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 		session.SendUpdates()
 	}()
 
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+	options := websocket.AcceptOptions{InsecureSkipVerify: true}
+	if origin != "" {
+		options.InsecureSkipVerify = false
+		options.OriginPatterns = []string{origin}
+	}
+
+	conn, err := websocket.Accept(w, r, &options)
 	if err != nil {
 		slog.Error("could not accept websocket connection", logAttrs, err)
 		w.WriteHeader(http.StatusInternalServerError)
