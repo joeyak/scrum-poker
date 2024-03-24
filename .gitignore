@@ -24,3 +24,4 @@ go.work
 
 .vscode/
 *_templ.go
+tmp/
