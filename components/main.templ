@@ -176,15 +176,18 @@ templ PokerContent(session models.Session, currentUser models.User) {
 			<div class="grid">
 				if results,  ok := session.Calc(); ok || session.Showing {
 					if session.Showing {
-						<button class="secondary" hx-vals={ `{"resetResults": true}` } ws-send>Reset</button>
+						<button class="secondary" value="Reset" hx-vals={ `{"resetResults": true}` } ws-send>Reset</button>
 						for _, result := range results {
 							@cardResults(result)
 						}
 					} else {
-						<button hx-vals={ `{"showResults": true}` } ws-send>Show Results</button>
+						<div>
+							<input type="button" value="Show Results" hx-vals={ `{"showResults": true}` } ws-send/>
+							<small style="margin-bottom: unset; text-align: center;">Showing results will lock actions till the reset button is clicked.</small>
+						</div>
 					}
 				} else {
-					<div>All participants much choose a card</div>
+					<div>All participants much choose thier card(s)</div>
 				}
 			</div>
 		</article>
