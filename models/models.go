@@ -109,15 +109,17 @@ func (session *Session) Calc() ([]CalcResults, bool) {
 
 type ReadyUser struct {
 	User
-	Ready bool
+	Ready       bool
+	Participant bool
 }
 
 func (session *Session) ReadyUsers() []ReadyUser {
 	var users []ReadyUser
 	for _, user := range session.Users {
 		users = append(users, ReadyUser{
-			User:  *user,
-			Ready: len(user.Cards) == len(session.Rows),
+			User:        *user,
+			Ready:       len(user.Cards) == len(session.Rows),
+			Participant: user.Type == UserTypeParticipant,
 		})
 	}
 
@@ -144,6 +146,19 @@ func (session *Session) ReadyUsers() []ReadyUser {
 	})
 
 	return users
+}
+
+func (session *Session) UserAnswer(ID string) string {
+	user := session.Users[ID]
+	if len(session.Rows) == 1 {
+		return user.Cards[session.Rows[0]]
+	}
+
+	var answers []string
+	for row, card := range user.Cards {
+		answers = append(answers, fmt.Sprintf("%s:%s", row, card))
+	}
+	return strings.Join(answers, ", ")
 }
 
 func (session *Session) Reset() {

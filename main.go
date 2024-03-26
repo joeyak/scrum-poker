@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"mime"
 	"net/http"
@@ -100,7 +101,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info := getInfoCookie(w, r)
+	info := getInfoCookie(r)
 	if r.URL.Query().Has("cards") {
 		info.Session.Cards = strings.Split(r.URL.Query().Get("cards"), ",")
 	}
@@ -133,7 +134,7 @@ func handleNewSession(w http.ResponseWriter, r *http.Request) {
 	cards := strings.Split(r.FormValue("cards"), ",")
 	rows := strings.Split(r.FormValue("rows"), ",")
 
-	info := getInfoCookie(w, r)
+	info := getInfoCookie(r)
 	info.Session.Cards = cards
 	info.Session.Rows = rows
 
@@ -172,7 +173,7 @@ func handleSession(w http.ResponseWriter, r *http.Request) {
 	sessionAttr := slog.String("session", session.ID)
 
 	renderSessionJoin := func() {
-		info := getInfoCookie(w, r)
+		info := getInfoCookie(r)
 
 		err := components.SessionJoin(*session, info).Render(r.Context(), w)
 		if err != nil {
@@ -313,8 +314,8 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 		for {
 			_, message, err := conn.Read(r.Context())
 			if err != nil {
-				if !errors.As(err, &websocket.CloseError{}) {
-					slog.Error("could not read connection", logAttrs, err)
+				if !errors.As(err, &websocket.CloseError{}) && !errors.Is(err, io.EOF) {
+					slog.Debug("could not read connection", logAttrs, err)
 				}
 				cancel()
 				return
@@ -356,6 +357,7 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 			if value.FlipType {
 				if user.Type == models.UserTypeParticipant {
 					user.Type = models.UserTypeWatcher
+					clear(user.Cards)
 				} else {
 					user.Type = models.UserTypeParticipant
 				}
@@ -395,20 +397,12 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func getInfoCookie(w http.ResponseWriter, r *http.Request) models.CookieData {
-	resetInfoCookie := func() { http.SetCookie(w, &http.Cookie{Name: "info", Path: "/", MaxAge: -1}) }
+func getInfoCookie(r *http.Request) models.CookieData {
 	info := models.CookieData{Session: models.NewSessionInfo(defaultCards, nil)}
 	if cookie, _ := r.Cookie("info"); cookie != nil {
 		data, err := base64.StdEncoding.DecodeString(cookie.Value)
-		if err != nil {
-			slog.Error("could not decode cookie string", err)
-			resetInfoCookie()
-		} else {
-			err := json.Unmarshal(data, &info)
-			if err != nil {
-				slog.Error("could not unmarshal cookie data")
-				resetInfoCookie()
-			}
+		if err == nil {
+			json.Unmarshal(data, &info)
 		}
 	}
 	return info

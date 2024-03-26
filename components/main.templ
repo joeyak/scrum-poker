@@ -21,10 +21,7 @@ templ BaseHTML(url string) {
 			<main id="main" class="container-fluid" hx-boost="true" hx-target="#main">
 				<div hx-get={ url } hx-trigger="load"></div>
 			</main>
-			<footer>
-				This is an open source project by joeyak, under MIT license. Source at
-				<a href="https://github.com/joeyak/scrum-poker" target="_blank" rel="noopener noreferrer" hx-disable>Github</a>
-			</footer>
+			@footer(false)
 		</body>
 	</html>
 }
@@ -45,8 +42,20 @@ templ header(title, exitLink string) {
 	</header>
 }
 
+templ footer(show bool) {
+	<footer id="footer" hx-swap-oob="true">
+		if show {
+			<small>
+				This is an open source project by joeyak, under MIT license. Source at
+				<a href="https://github.com/joeyak/scrum-poker" target="_blank" rel="noopener noreferrer" hx-disable>Github</a>
+			</small>
+		}
+	</footer>
+}
+
 templ StatusPage(status int) {
 	@header("Opps", "")
+	@footer(false)
 	<div style="text-align: center;">
 		<h1>{ strconv.Itoa(status) } - { http.StatusText(status) }</h1>
 	</div>
@@ -54,6 +63,7 @@ templ StatusPage(status int) {
 
 templ RootPage(info models.CookieData, errorMessage string) {
 	@header("Welcome", "")
+	@footer(true)
 	if errorMessage != "" {
 		<div class="error">{ errorMessage }</div>
 	}
@@ -76,6 +86,7 @@ templ RootPage(info models.CookieData, errorMessage string) {
 
 templ SessionCreated(session models.Session, host string) {
 	@header("Session Created", "")
+	@footer(false)
 	<div>Your session has been created.</div>
 	<div><a href={ templ.URL(fmt.Sprintf("/session/%s", session.ID)) }>Join Room</a></div>
 	<br/>
@@ -100,6 +111,7 @@ templ SessionCreated(session models.Session, host string) {
 
 templ SessionJoin(session models.Session, info models.CookieData) {
 	@header(fmt.Sprintf("Join Session %s", session.ID), "")
+	@footer(false)
 	<form action={ templ.URL(fmt.Sprintf("/session/%s/join", session.ID)) } method="POST">
 		<fieldset>
 			<div class="grid">
@@ -131,6 +143,7 @@ func exitLink(session models.Session, user models.User) string {
 
 templ SessionRoom(session models.Session, currentUser models.User) {
 	@header(fmt.Sprintf("Session %s - Welcome %s", session.ID, currentUser.Name), exitLink(session, currentUser))
+	@footer(false)
 	<div hx-ext="ws" ws-connect={ fmt.Sprintf("/session/%s/user/%s/ws", session.ID, currentUser.ID) }>
 		@PokerContent(session, currentUser)
 	</div>
@@ -140,7 +153,7 @@ templ PokerError(message, redirectLink string) {
 	<div id="pokerError" class="error">
 		{ message }
 		if redirectLink != "" {
-			<div hx-get={ redirectLink } hx-trigger="load delay:5s"></div>
+			<div hx-get={ redirectLink } hx-trigger="load delay:3s"></div>
 		}
 	</div>
 }
@@ -148,35 +161,37 @@ templ PokerError(message, redirectLink string) {
 templ PokerContent(session models.Session, currentUser models.User) {
 	<div id="pokerContent">
 		@PokerError("", "")
-		<article>
-			<header>Cards</header>
-			<div class={ templ.KV("grid", len(session.Cards)*len(session.Rows) <= 16) }>
-				for _, row := range session.Rows {
-					<div>
-						if len(session.Rows) > 1 {
-							<small class="soft" style="padding-left: 0.8rem;">{ row }</small>
-						}
-						<div class={ "poker-grid", templ.KV("poker-grid-border", len(session.Rows) > 1) }>
-							for _, card := range session.Cards {
-								<div
-									class={ "poker-card", templ.KV("selected-card", currentUser.Cards[row] == card), templ.KV("no-hover", session.Showing) }
-									hx-vals={ fmt.Sprintf(`{"card": "%s", "row": "%s", "undoSelection": %t}`, card, row, currentUser.Cards[row] == card) }
-									if !session.Showing {
-										ws-send
-									}
-								>{ card }</div>
+		if currentUser.Type == models.UserTypeParticipant {
+			<article>
+				<header>Cards</header>
+				<div class={ templ.KV("grid", len(session.Cards)*len(session.Rows) <= 16) }>
+					for _, row := range session.Rows {
+						<div>
+							if len(session.Rows) > 1 {
+								<small class="soft" style="padding-left: 0.8rem;">{ row }</small>
 							}
+							<div class={ "poker-grid", templ.KV("poker-grid-border", len(session.Rows) > 1) }>
+								for _, card := range session.Cards {
+									<div
+										class={ "poker-card", templ.KV("selected-card", currentUser.Cards[row] == card), templ.KV("no-hover", session.Showing) }
+										hx-vals={ fmt.Sprintf(`{"card": "%s", "row": "%s", "undoSelection": %t}`, card, row, currentUser.Cards[row] == card) }
+										if !session.Showing {
+											ws-send
+										}
+									>{ card }</div>
+								}
+							</div>
 						</div>
-					</div>
-				}
-			</div>
-		</article>
+					}
+				</div>
+			</article>
+		}
 		<article>
 			<header>Results</header>
 			<div class="grid">
 				if results,  ok := session.Calc(); ok || session.Showing {
 					if session.Showing {
-						<button class="secondary" value="Reset" hx-vals={ `{"resetResults": true}` } ws-send>Reset</button>
+						<button class="secondary" hx-vals={ `{"resetResults": true}` } ws-send>Clear Results</button>
 						for _, result := range results {
 							@cardResults(result)
 						}
@@ -195,26 +210,15 @@ templ PokerContent(session models.Session, currentUser models.User) {
 			<header>Players</header>
 			<div class="grid player-row">
 				<div>User</div>
-				<div>Is QA</div>
 				<div>User Type</div>
+				<div>Is QA</div>
+				<div>Answer</div>
 				<div></div>
 			</div>
 			for _, user := range session.ReadyUsers() {
-				<div class={ "grid", "player-row", templ.KV("has-selected-card", user.Ready), templ.KV("not-active", !user.Active) }>
+				<div class={ "grid", "player-row", templ.KV("has-selected-card", user.Ready && user.Participant), templ.KV("player-watcher", !user.Participant), templ.KV("not-active", !user.Active) }>
 					<div>{ user.Name }</div>
 					if user.ID == currentUser.ID {
-						<div>
-							<input
-								type="checkbox"
-								role="switch"
-								hx-vals={ `{"flipQA": true}` }
-								checked?={ currentUser.IsQA }
-								ws-send
-								if session.Showing {
-									disabled
-								}
-							/>
-						</div>
 						<div>
 							if session.Showing {
 								{ string(user.Type) }
@@ -227,13 +231,34 @@ templ PokerContent(session models.Session, currentUser models.User) {
 								>{ string(user.Type) }</a>
 							}
 						</div>
+						<div>
+							if user.Participant {
+								<input
+									type="checkbox"
+									role="switch"
+									hx-vals={ `{"flipQA": true}` }
+									checked?={ currentUser.IsQA }
+									ws-send
+									if session.Showing {
+										disabled
+									}
+								/>
+							}
+						</div>
 					} else {
 						<div>{ strconv.FormatBool(user.IsQA) }</div>
 						<div>{ string(user.Type) }</div>
 					}
 					<div>
+						if session.Showing {
+							{ session.UserAnswer(user.ID) }
+						} else if user.Ready && user.Participant {
+							???
+						}
+					</div>
+					<div>
 						if user.ID != currentUser.ID {
-							<button class="exit-button" hx-get={ exitLink(session, user.User) } hx-push-url="false"></button>
+							<button class="exit-button" hx-get={ exitLink(session, user.User) } hx-push-url="false" data-tooltip="Kick User"></button>
 						}
 					</div>
 				</div>

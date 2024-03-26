@@ -87,6 +87,10 @@ body>footer {
     background-color: color-mix(in srgb, var(--pico-card-background-color) var(--accent-color-percent), var(--pico-primary));
 }
 
+.player-watcher {
+    background-color: color-mix(in srgb, var(--pico-card-background-color) var(--accent-color-percent), gray);
+}
+
 .player-row {
     padding-top: 0.25em;
     padding-bottom: 0.5em;
