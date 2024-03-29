@@ -2,18 +2,26 @@
 
 This is a simple site with no external dependencies to host a poker like application for scrum estimations.
 
-## Usage
+## Args
 
-### Docker
+`-addr` Server Address (default "0.0.0.0:8080")
 
-#### CLI
+`-debug` Enable Debug Logging
+
+`-log-endpoints` Log Endpoints
+
+`-no-color` No Color Output
+
+## Docker
+
+### CLI
 
 ```sh
 docker pull ghcr.io/joeyak/scrum-poker:master
 docker run -p 8080:8080 --rm ghcr.io/joeyak/scrum-poker:master
 ```
 
-#### Docker Compose
+### Docker Compose
 
 ```yaml
 services:
@@ -21,16 +29,8 @@ services:
     image: ghcr.io/joeyak/scrum-poker:master
     restart: unless-stopped
     ports:
-      - 8080:8080
+      - 80:8080
 ```
-
-### Args
-
-`-addr` sets the server address. It defaults to `0.0.0.0:8080`.
-
-`-origin` sets the websocket upgrade origin. This will check if the host header domain matches the origin passed in. If it's empty, then the websocket will not check the origin.
-
-`-debug` will enable debug level logging.
 
 ## Nginx
 

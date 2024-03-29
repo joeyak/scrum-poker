@@ -3,7 +3,7 @@ testdata_dir = "testdata"
 tmp_dir = "tmp"
 
 [build]
-  args_bin = ["-addr 127.0.0.1:8080", "-debug"]
+  args_bin = ["-addr 127.0.0.1:8080", "-debug", "-log-endpoints"]
   bin = "tmp/main.exe"
   cmd = "go build -o ./tmp/main.exe"
   delay = 1000

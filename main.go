@@ -26,8 +26,6 @@ import (
 )
 
 var (
-	origin string
-
 	// Default Room Settings
 	defaultCards = []string{"1", "2", "3", "5", "8", "13"}
 
@@ -39,10 +37,11 @@ var (
 
 func main() {
 	var addr string
-	var debugLog bool
+	var debugLog, logEndpoints, noColor bool
 	flag.StringVar(&addr, "addr", "0.0.0.0:8080", "Server Address")
-	flag.StringVar(&origin, "origin", "", "Origin to allow CORs. If empty the websocket will not check for the origin. Example: example.com for website www.example.com")
 	flag.BoolVar(&debugLog, "debug", false, "Enable Debug Logging")
+	flag.BoolVar(&noColor, "no-color", false, "No Color Output")
+	flag.BoolVar(&logEndpoints, "log-endpoints", false, "Log Endpoints")
 	flag.Parse()
 
 	level := slog.LevelInfo
@@ -53,6 +52,7 @@ func main() {
 		tint.NewHandler(os.Stderr, &tint.Options{
 			Level:     level,
 			AddSource: true,
+			NoColor:   noColor,
 			ReplaceAttr: func(groups []string, attr slog.Attr) slog.Attr {
 				if attr.Key == "!BADKEY" && attr.Value.Kind() == slog.KindAny {
 					if err, ok := attr.Value.Any().(error); ok {
@@ -64,7 +64,7 @@ func main() {
 		}),
 	))
 
-	mux := http.NewServeMux()
+	mux := Handler{mux: http.NewServeMux(), logEndpoints: logEndpoints}
 	mux.HandleFunc("/", htmxMiddleware(handleRoot))
 	mux.HandleFunc("GET /static/", handleStatic)
 	mux.HandleFunc("POST /new", handleNewSession)
@@ -74,8 +74,31 @@ func main() {
 	mux.HandleFunc("/session/{sessionID}/user/{userID}/exit", handleSessionExit)
 	mux.HandleFunc("/session/{sessionID}/user/{userID}/ws", handleUserWs)
 
-	slog.Info("Starting server", "addr", addr)
+	slog.Info("Starting server", "addr", addr, "debug", debugLog, "noColor", noColor, "logEndpoints", logEndpoints)
 	http.ListenAndServe(addr, mux)
+}
+
+type Handler struct {
+	mux          *http.ServeMux
+	logEndpoints bool
+}
+
+func (h Handler) HandleFunc(pattern string, handler http.HandlerFunc, middlewares ...func(http.HandlerFunc) http.HandlerFunc) {
+	for _, middleware := range middlewares {
+		handler = middleware(handler)
+	}
+	h.mux.HandleFunc(pattern, handler)
+}
+
+func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if h.logEndpoints {
+		ips := r.Header.Get("X-Forwarded-For")
+		if ips == "" {
+			ips = r.RemoteAddr
+		}
+		slog.Info("endpoint hit", "ip", strings.Split(ips, ","), "path", r.RequestURI)
+	}
+	h.mux.ServeHTTP(w, r)
 }
 
 func htmxMiddleware(handler http.HandlerFunc) http.HandlerFunc {
@@ -264,21 +287,13 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logAttrs := slog.Group("", slog.String("session", session.ID), slog.String("user", user.Name))
-	slog.Debug("ws connection opening", logAttrs)
-
 	defer func() {
 		slog.Debug("ws connection closing", logAttrs)
 		user.Active = false
 		session.SendUpdates()
 	}()
 
-	options := websocket.AcceptOptions{InsecureSkipVerify: true}
-	if origin != "" {
-		options.InsecureSkipVerify = false
-		options.OriginPatterns = []string{origin}
-	}
-
-	conn, err := websocket.Accept(w, r, &options)
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		slog.Error("could not accept websocket connection", logAttrs, err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -320,8 +335,6 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 				cancel()
 				return
 			}
-
-			slog.Debug("Websock data recieved", logAttrs, "message", string(message))
 
 			value := struct {
 				Card, Row     string
@@ -380,7 +393,6 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case <-ctx.Done():
-			slog.Debug("connection closed", logAttrs)
 			return
 		}
 
