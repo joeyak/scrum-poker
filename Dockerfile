@@ -17,3 +17,5 @@ FROM photon
 COPY --from=build /build/app /usr/local/bin
 
 ENTRYPOINT ["app"]
+
+CMD ["-addr", "0.0.0.0:80"]
