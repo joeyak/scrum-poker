@@ -4,10 +4,14 @@ Parameters:
   ServiceName:
     Type: String
     Default: scrum-poker
-  VpcId:
+    Description: Name of the service
+  CertificateArn:
     Type: String
-  SubnetIds:
-    Type: List<AWS::EC2::Subnet::Id>
+    Description: Certificate to attach a load balancer to
+  ImageTag:
+    Type: String
+    Description: tag of the docker image to pull
+    Default: latest
 
 Resources:
   # ECS Stuff
@@ -27,7 +31,7 @@ Resources:
       RequiresCompatibilities:
         - FARGATE
       ContainerDefinitions:
-        - Image: ghcr.io/joeyak/scrum-poker:master
+        - Image: !Join [":", ["ghcr.io/joeyak/scrum-poker", !Ref ImageTag]]
           Name: scrum-poker
           HealthCheck:
             Command:
@@ -43,38 +47,32 @@ Resources:
               awslogs-group: !Ref LogGroup
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: !Ref ServiceName
-  # Service:
-  #   Type: AWS::ECS::Service
-  #   DependsOn:
-  #     - LoadBalancerListener
-  #   Properties:
-  #     ServiceName: !Ref ServiceName
-  #     Cluster: !Ref Cluster
-  #     DesiredCount: 1
-  #     LaunchType: FARGATE
-  #     DeploymentConfiguration:
-  #       MaximumPercent: 100
-  #       MinimumHealthyPercent: 0
-  #     NetworkConfiguration:
-  #       AwsvpcConfiguration:
-  #         SecurityGroups:
-  #           - !Ref SecurityGroup
-  #         Subnets: !Ref SubnetIds
-  #     TaskDefinition: !Ref TaskDefinition
-  #     LoadBalancers:
-  #       - ContainerName: !Ref ServiceName
-  #         ContainerPort: 8080
-  #         TargetGroupArn: !Ref TargetGroup
-
-  # Security
-  SecurityGroup:
-    Type: AWS::EC2::SecurityGroup
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - LoadBalancerListener
     Properties:
-      GroupDescription: Security group for scrum poker
-      VpcId: !Ref VpcId
-      SecurityGroupIngress:
-        - CidrIp: 0.0.0.0/0
-          IpProtocol: -1
+      ServiceName: !Ref ServiceName
+      Cluster: !Ref Cluster
+      DesiredCount: 1
+      LaunchType: FARGATE
+      HealthCheckGracePeriodSeconds: 30
+      DeploymentConfiguration:
+        MaximumPercent: 100
+        MinimumHealthyPercent: 0
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          SecurityGroups:
+            - !GetAtt VPC.DefaultSecurityGroup
+          Subnets:
+            - !Ref Subnet1
+            - !Ref Subnet2
+          AssignPublicIp: ENABLED
+      TaskDefinition: !Ref TaskDefinition
+      LoadBalancers:
+        - ContainerName: !Ref ServiceName
+          ContainerPort: 8080
+          TargetGroupArn: !Ref TargetGroup
   ServiceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -92,6 +90,61 @@ Resources:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
       Path: /
 
+  # Network
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/24
+  VPCSGIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      IpProtocol: -1
+      CidrIp: 0.0.0.0/0
+      GroupId: !GetAtt VPC.DefaultSecurityGroup
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    DependsOn:
+      - InternetGateway
+    Properties:
+      VpcId: !Ref VPC
+  Subnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.0.0/25
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs ""]
+  Subnet1RouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref Subnet1
+  Subnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.0.128/25
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs ""]
+  Subnet2RouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref Subnet2
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  GatewayAttachement:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTable
+      GatewayId: !Ref InternetGateway
+      DestinationCidrBlock: 0.0.0.0/0
+
   # Load Balancer
   TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
@@ -105,7 +158,7 @@ Resources:
       TargetType: ip
       Port: 8080
       Protocol: HTTP
-      VpcId: !Ref VpcId
+      VpcId: !Ref VPC
       TargetGroupAttributes:
         - Key: deregistration_delay.timeout_seconds
           Value: 0
@@ -113,15 +166,34 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
       Scheme: internet-facing
-      Subnets: !Ref SubnetIds
+      Subnets:
+        - !Ref Subnet1
+        - !Ref Subnet2
       SecurityGroups:
-        - !Ref SecurityGroup
+        - !GetAtt VPC.DefaultSecurityGroup
   LoadBalancerListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       LoadBalancerArn: !Ref LoadBalancer
       Port: 80
       Protocol: HTTP
+      DefaultActions:
+        - Type: "redirect"
+          RedirectConfig:
+            Protocol: "HTTPS"
+            Port: 443
+            Host: "#{host}"
+            Path: "/#{path}"
+            Query: "#{query}"
+            StatusCode: "HTTP_301"
+  LoadBalancerListenerSSL:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
       DefaultActions:
         - Type: forward
           ForwardConfig:

@@ -77,3 +77,13 @@ proxy_set_header X-Real-IP $remote_addr;
 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 proxy_set_header X-Forwarded-Proto $scheme;
 ```
+
+## Cloudformation
+
+The `cloudformation.yaml` file can be used to create the application in aws.
+
+```bash
+aws cloudformation create-stack --stack-name scrum-poker --template-body file://cloudformation.yaml --capabilities CAPABILITY_IAM --parameters "ParameterKey=CertificateArn,ParameterValue=<CERTIFICATE_ARN>"
+```
+
+The default tag version is latest, but if you want to use master, add `"ParameterKey=ImageTag,ParameterValue=master"` to the `--parameters`
