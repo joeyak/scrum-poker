@@ -47,7 +47,7 @@ Resources:
           HealthCheck:
             Command:
               - "CMD-SHELL"
-              - "curl -f http://localhost:8080/ || exit 1"
+              - "curl -f http://localhost:8080/healthcheck || exit 1"
           PortMappings:
             - ContainerPort: 8080
           LogConfiguration:
@@ -174,8 +174,8 @@ Resources:
   TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      HealthCheckIntervalSeconds: 6
-      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 60
+      HealthCheckPath: /healthcheck
       HealthCheckProtocol: HTTP
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2

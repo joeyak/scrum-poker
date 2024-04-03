@@ -89,3 +89,9 @@ aws cloudformation create-stack --stack-name scrum-poker --template-body file://
 The default tag version is latest, but if you want to use master, add `"ParameterKey=ImageTag,ParameterValue=master"` to the `--parameters`
 
 If you want to use a different subdomain besides `poker` you can specify it with the paramter `"ParameterKey=SubDomain,ParameterValue=www"`
+
+Run the script below to update the service's image version if there's a new version out.
+
+```bash
+aws ecs update-service --cluster <CLUSTER_NAME> --service <SERVICE_NAME> --force-new-deployment
+```
