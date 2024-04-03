@@ -12,6 +12,17 @@ Parameters:
     Type: String
     Description: tag of the docker image to pull
     Default: latest
+  HostedZoneName:
+    Type: String
+    Description: Hosted zone name. This script will prefix it with "poker.", so if "example.com." is passed, it will create a record set "poker.example.com"
+    Default: ""
+  SubDomain:
+    Type: String
+    Description: Subdomain of record set
+    Default: poker
+
+Conditions:
+  CreateRecordSet: !Not [!Equals [!Ref HostedZoneName, ""]]
 
 Resources:
   # ECS Stuff
@@ -50,7 +61,8 @@ Resources:
   Service:
     Type: AWS::ECS::Service
     DependsOn:
-      - LoadBalancerListener
+      - LoadBalancerListenerRedirect
+      - LoadBalancerListenerSSL
     Properties:
       ServiceName: !Ref ServiceName
       Cluster: !Ref Cluster
@@ -144,6 +156,19 @@ Resources:
       RouteTableId: !Ref RouteTable
       GatewayId: !Ref InternetGateway
       DestinationCidrBlock: 0.0.0.0/0
+  RecordSet:
+    Type: AWS::Route53::RecordSet
+    Condition: CreateRecordSet
+    Properties:
+      HostedZoneName: !Ref HostedZoneName
+      Name: !Sub
+        - "${SubDomain}.${ZoneName}"
+        - ZoneName: !Ref HostedZoneName
+          SubDomain: !Ref SubDomain
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt LoadBalancer.DNSName
+        HostedZoneId: !GetAtt LoadBalancer.CanonicalHostedZoneID
 
   # Load Balancer
   TargetGroup:
@@ -171,7 +196,7 @@ Resources:
         - !Ref Subnet2
       SecurityGroups:
         - !GetAtt VPC.DefaultSecurityGroup
-  LoadBalancerListener:
+  LoadBalancerListenerRedirect:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       LoadBalancerArn: !Ref LoadBalancer
