@@ -16,7 +16,7 @@ templ BaseHTML(url string) {
 			<link rel="stylesheet" href="/static/root.css"/>
 			<script type="text/javascript" src="/static/root.js"></script>
 		</head>
-		<body>
+		<body class="flex-column">
 			@header("", "")
 			<main id="main" class="container-fluid" hx-boost="true" hx-target="#main">
 				<div hx-get={ url } hx-trigger="load"></div>
@@ -79,6 +79,13 @@ templ RootPage(info models.CookieData, errorMessage string) {
 				<input type="text" name="rows" value={ strings.Join(info.Session.Rows, ",") }/>
 				<small>A comma delimited list of row labels to have in the session. Each row will be added up for a total points.</small>
 			</label>
+			<fieldset>
+				<legend>Map final result to:</legend>
+				<input type="radio" id="fibonacciNumbers" name="mapToFibonacci" value="true" checked?={ info.Session.MapToFibonacci }/>
+				<label for="fibonacciNumbers">Fibonacci Numbers</label>
+				<input type="radio" id="days" name="mapToFibonacci" value="false" checked?={ !info.Session.MapToFibonacci }/>
+				<label for="days">Days</label>
+			</fieldset>
 		</fieldset>
 		<input type="submit" value="Create Session"/>
 	</form>
@@ -105,7 +112,7 @@ templ SessionCreated(session models.Session, host string) {
 			data-tooltip="Click to copy"
 			data-placement="bottom"
 			onClick="copyContent(this)"
-		>{ fmt.Sprintf("%s?cards=%s&rows=%s", host, strings.Join(session.Cards, ","), strings.Join(session.Rows, ",")) }</code>
+		>{ fmt.Sprintf("%s?cards=%s&rows=%s&mapToFibonacci=%t", host, strings.Join(session.Cards, ","), strings.Join(session.Rows, ","), session.MapToFibonacci) }</code>
 	</div>
 }
 
@@ -137,10 +144,6 @@ templ SessionJoin(session models.Session, info models.CookieData) {
 	</form>
 }
 
-func exitLink(session models.Session, user models.User) string {
-	return fmt.Sprintf("/session/%s/user/%s/exit", session.ID, user.ID)
-}
-
 templ SessionRoom(session models.Session, currentUser models.User) {
 	@header(fmt.Sprintf("Session %s - Welcome %s", session.ID, currentUser.Name), exitLink(session, currentUser))
 	@footer(false)
@@ -159,7 +162,7 @@ templ PokerError(message, redirectLink string) {
 }
 
 templ PokerContent(session models.Session, currentUser models.User) {
-	<div id="pokerContent">
+	<div id="pokerContent" class="flex-column">
 		@PokerError("", "")
 		if currentUser.Type == models.UserTypeParticipant {
 			<article>
@@ -167,10 +170,10 @@ templ PokerContent(session models.Session, currentUser models.User) {
 				<div class={ templ.KV("grid", len(session.Cards)*len(session.Rows) <= 16) }>
 					for _, row := range session.Rows {
 						<div>
-							if len(session.Rows) > 1 {
+							if session.MultiRow() {
 								<small class="soft" style="padding-left: 0.8rem;">{ row }</small>
 							}
-							<div class={ "poker-grid", templ.KV("poker-grid-border", len(session.Rows) > 1) }>
+							<div class={ "poker-grid", templ.KV("poker-grid-border", session.MultiRow()) }>
 								for _, card := range session.Cards {
 									<div
 										class={ "poker-card", templ.KV("selected-card", currentUser.Cards[row] == card), templ.KV("no-hover", session.Showing) }
@@ -192,6 +195,7 @@ templ PokerContent(session models.Session, currentUser models.User) {
 				if results,  ok := session.Calc(); ok || session.Showing {
 					if session.Showing {
 						<button class="secondary" hx-vals={ `{"resetResults": true}` } ws-send>Clear Results</button>
+						@finalResult(session, results[0].Dev.Avg()+results[0].QA.Avg())
 						for _, result := range results {
 							@cardResults(result)
 						}
@@ -246,12 +250,12 @@ templ PokerContent(session models.Session, currentUser models.User) {
 							}
 						</div>
 					} else {
-						<div>{ strconv.FormatBool(user.IsQA) }</div>
 						<div>{ string(user.Type) }</div>
+						<div>{ strconv.FormatBool(user.IsQA) }</div>
 					}
 					<div>
 						if session.Showing {
-							{ session.UserAnswer(user.ID) }
+							{ userAnswer(user.Cards) }
 						} else if user.Ready && user.Participant {
 							???
 						}
@@ -268,17 +272,39 @@ templ PokerContent(session models.Session, currentUser models.User) {
 }
 
 templ cardResults(result models.CalcResults) {
-	<div class="results">
+	<div class="flex-column">
 		if result.Name != "" {
 			<div class="soft">{ result.Name }</div>
 			<hr/>
 		}
-		<div>Avg: { result.Points() }</div>
-		<div>Distribution: { result.Distribution() }</div>
-		if qaPoints := result.QAPoints(); qaPoints != "" {
+		if result.Dev.Any() {
+			@distribution(result.Dev)
+		}
+		if result.QA.Any() {
 			<hr/>
-			<div>QA Avg: { qaPoints }</div>
-			<div>QA Distribution: { result.QADistribution() }</div>
+			@distribution(result.QA)
+		}
+	</div>
+}
+
+templ distribution(dist models.Distribution) {
+	<div class="result-card">
+		<div>{ dist.Prefix } Avg: { dist.Points() }</div>
+		<div>{ dist.Prefix } Distribution: { dist.Distribution() }</div>
+	</div>
+}
+
+templ finalResult(session models.Session, finalAvg float64) {
+	<div class="flex-column result-card" style="text-align: center;">
+		if session.MultiRow() {
+			<div class="soft">Final Results</div>
+			<hr/>
+		}
+		if session.MapToFibonacci {
+			<div>Points: { trimFloat(finalAvg) }</div>
+			<div>Range: { finalResultRange(finalAvg) }</div>
+		} else {
+			<div>Final Days: { trimFloat(finalAvg) }</div>
 		}
 	</div>
 }

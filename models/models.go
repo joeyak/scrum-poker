@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,17 +19,19 @@ type CookieData struct {
 }
 
 type SessionInfo struct {
-	Cards []string
-	Rows  []string
+	Cards          []string
+	Rows           []string
+	MapToFibonacci bool
 }
 
-func NewSessionInfo(cards, rows []string) SessionInfo {
+func NewSessionInfo(cards, rows []string, mapToFibonacci bool) SessionInfo {
 	if len(rows) == 0 {
 		rows = []string{""}
 	}
 	return SessionInfo{
-		Cards: cards,
-		Rows:  rows,
+		Cards:          cards,
+		Rows:           rows,
+		MapToFibonacci: mapToFibonacci,
 	}
 }
 
@@ -43,12 +46,9 @@ type Session struct {
 	cancels []func()
 }
 
-func NewSession(ID string, Expires time.Time, cards, rows []string) *Session {
-	if len(rows) == 0 {
-		rows = []string{""}
-	}
+func NewSession(ID string, Expires time.Time, sessionInfo SessionInfo) *Session {
 	return &Session{
-		SessionInfo: NewSessionInfo(cards, rows),
+		SessionInfo: sessionInfo,
 		ID:          ID,
 		Expires:     Expires,
 		Users:       map[string]*User{},
@@ -82,15 +82,19 @@ func (session *Session) Calc() ([]CalcResults, bool) {
 					return nil, false
 				}
 
-				result.Add(card, user.IsQA)
+				if user.IsQA {
+					result.QA.Add(card)
+				} else {
+					result.Dev.Add(card)
+				}
 			}
 		}
 
 		results = append(results, result)
 	}
 
-	if len(session.Rows) > 1 {
-		total := NewCalcResults("Total")
+	if session.MultiRow() {
+		summary := NewCalcResults("Summary")
 		for _, user := range session.Users {
 			if user.Active && user.Type == UserTypeParticipant {
 				value := 0.0
@@ -98,13 +102,23 @@ func (session *Session) Calc() ([]CalcResults, bool) {
 					amount, _ := strconv.ParseFloat(card, 64)
 					value += amount
 				}
-				total.Add(trimFloat(value), user.IsQA)
+
+				cardValue := trimFloat(value)
+				if user.IsQA {
+					summary.QA.Add(cardValue)
+				} else {
+					summary.Dev.Add(cardValue)
+				}
 			}
 		}
-		results = append([]CalcResults{total}, results...)
+		results = append([]CalcResults{summary}, results...)
 	}
 
 	return results, true
+}
+
+func (session Session) MultiRow() bool {
+	return len(session.Rows) > 1
 }
 
 type ReadyUser struct {
@@ -148,19 +162,6 @@ func (session *Session) ReadyUsers() []ReadyUser {
 	return users
 }
 
-func (session *Session) UserAnswer(ID string) string {
-	user := session.Users[ID]
-	if len(session.Rows) == 1 {
-		return user.Cards[session.Rows[0]]
-	}
-
-	var answers []string
-	for row, card := range user.Cards {
-		answers = append(answers, fmt.Sprintf("%s:%s", row, card))
-	}
-	return strings.Join(answers, ", ")
-}
-
 func (session *Session) Reset() {
 	slog.Info("resetting session", "session", session.ID)
 	session.Showing = false
@@ -172,13 +173,19 @@ func (session *Session) Reset() {
 
 func (session *Session) SendUpdates() {
 	slog.Debug("sending session updates", "session", session.ID)
+	var wg sync.WaitGroup
 	for _, user := range session.Users {
-		select {
-		case user.UpdateCh <- struct{}{}:
-			slog.Debug("session update sent", "session", session.ID, "user", user.Name)
-		case <-time.After(time.Millisecond * 100):
-		}
+		wg.Add(1)
+		go func() {
+			select {
+			case user.UpdateCh <- struct{}{}:
+				slog.Debug("session update sent", "session", session.ID, "user", user.Name)
+			case <-time.After(time.Millisecond * 100):
+			}
+			wg.Done()
+		}()
 	}
+	wg.Wait()
 	slog.Debug("session updates done", "session", session.ID)
 }
 
@@ -192,68 +199,76 @@ func (session *Session) Close() {
 	for _, cancel := range session.cancels {
 		cancel()
 	}
+	clear(session.Users)
 }
 
 type CalcResults struct {
-	Name                               string
-	count, total, qaCount, qaTotal     float64
-	normalDistribution, qaDistribution map[string]int
+	Name    string
+	Dev, QA Distribution
 }
 
 func NewCalcResults(name string) CalcResults {
-	return CalcResults{
-		Name:               name,
-		normalDistribution: map[string]int{},
-		qaDistribution:     map[string]int{},
+	results := CalcResults{
+		Name: name,
+		Dev:  NewDistribution("Dev"),
+		QA:   NewDistribution("QA"),
 	}
+	return results
 }
 
-func (results *CalcResults) Add(card string, qa bool) {
+func (r CalcResults) Total() Distribution {
+	total := Distribution{counts: map[string]int{}}
+
+	return total
+}
+
+type Distribution struct {
+	Prefix        string
+	count, amount float64
+	counts        map[string]int
+}
+
+func NewDistribution(prefix string) Distribution {
+	return Distribution{Prefix: prefix, counts: map[string]int{}}
+}
+
+func (d *Distribution) Add(card string) {
 	amount, _ := strconv.ParseFloat(card, 64)
 
-	results.count++
-	results.total += amount
-	results.normalDistribution[card]++
-
-	if qa {
-		results.qaCount++
-		results.qaTotal += amount
-		results.qaDistribution[card]++
-	}
+	d.count++
+	d.amount += amount
+	d.counts[card]++
 }
 
-func (results CalcResults) Points() string {
-	if results.count > 0 {
-		return trimFloat(results.total / results.count)
-	}
-	return ""
+func (d Distribution) Any() bool {
+	return d.count > 0
 }
 
-func (results CalcResults) QAPoints() string {
-	if results.qaCount > 0 {
-		return trimFloat(results.qaTotal / results.qaCount)
+func (d Distribution) Avg() float64 {
+	if d.count == 0 {
+		return 0
+	}
+	return d.amount / d.count
+}
+
+func (d Distribution) Points() string {
+	if d.count > 0 {
+		return trimFloat(d.Avg())
 	}
 	return ""
 }
 
-func (results CalcResults) Distribution() string {
-	return results.distribution(results.normalDistribution)
-}
-
-func (results CalcResults) QADistribution() string {
-	return results.distribution(results.qaDistribution)
-}
-
-func (results CalcResults) distribution(m map[string]int) string {
+func (d Distribution) Distribution() string {
 	var counts []string
-	for card, count := range m {
+	for card, count := range d.counts {
 		counts = append(counts, fmt.Sprintf("%s(%d)", card, count))
 	}
+	slices.Sort(counts)
 	return strings.Join(counts, " ")
 }
 
 func trimFloat(f float64) string {
-	return strings.TrimRight(strings.TrimRight(strconv.FormatFloat(f, 'f', 1, 64), "0"), ".")
+	return strings.TrimRight(strings.TrimRight(strconv.FormatFloat(f, 'f', 2, 64), "0"), ".")
 }
 
 type UserType string

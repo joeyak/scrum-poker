@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/angelofallars/htmx-go"
 	"github.com/joeyak/scrum-poker/components"
@@ -50,9 +51,10 @@ func main() {
 	}
 	slog.SetDefault(slog.New(
 		tint.NewHandler(os.Stderr, &tint.Options{
-			Level:     level,
-			AddSource: true,
-			NoColor:   noColor,
+			Level:      level,
+			AddSource:  debugLog,
+			NoColor:    noColor,
+			TimeFormat: "Jan 02 15:04:05",
 			ReplaceAttr: func(groups []string, attr slog.Attr) slog.Attr {
 				if attr.Key == "!BADKEY" && attr.Value.Kind() == slog.KindAny {
 					if err, ok := attr.Value.Any().(error); ok {
@@ -64,7 +66,19 @@ func main() {
 		}),
 	))
 
+	go func() {
+		// Make sure to cleanup manager every 60 seconds so any sessions that expire are deleted
+		for {
+			time.Sleep(time.Second * 60)
+			sessionManager.Cleanup()
+		}
+	}()
+
 	mux := Handler{mux: http.NewServeMux(), logEndpoints: logEndpoints}
+
+	mux.Healthcheck("/healthcheck")
+	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {})
+
 	mux.HandleFunc("/", htmxMiddleware(handleRoot))
 	mux.HandleFunc("GET /static/", handleStatic)
 	mux.HandleFunc("POST /new", handleNewSession)
@@ -79,8 +93,18 @@ func main() {
 }
 
 type Handler struct {
-	mux          *http.ServeMux
-	logEndpoints bool
+	mux                *http.ServeMux
+	logEndpoints       bool
+	healthcheckPattern string
+}
+
+func (h *Handler) Healthcheck(pattern string) {
+	if h.healthcheckPattern != "" {
+		panic("healthcheck pattern already set")
+	}
+
+	h.healthcheckPattern = pattern
+	h.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {})
 }
 
 func (h Handler) HandleFunc(pattern string, handler http.HandlerFunc, middlewares ...func(http.HandlerFunc) http.HandlerFunc) {
@@ -91,12 +115,20 @@ func (h Handler) HandleFunc(pattern string, handler http.HandlerFunc, middleware
 }
 
 func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if h.logEndpoints {
+	if h.logEndpoints && r.RequestURI != h.healthcheckPattern && r.RequestURI != "/favicon.ico" {
 		ips := r.Header.Get("X-Forwarded-For")
 		if ips == "" {
 			ips = r.RemoteAddr
 		}
-		slog.Info("endpoint hit", "ip", strings.Split(ips, ","), "path", r.RequestURI)
+
+		attrs := []any{"ip", strings.Split(ips, ","), "path", r.RequestURI}
+
+		r.ParseForm()
+		if len(r.Form) > 0 {
+			attrs = append(attrs, "form", r.Form)
+		}
+
+		slog.Info("endpoint hit", attrs...)
 	}
 	h.mux.ServeHTTP(w, r)
 }
@@ -131,6 +163,9 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Has("rows") {
 		info.Session.Rows = strings.Split(r.URL.Query().Get("rows"), ",")
 	}
+	if r.URL.Query().Has("mapToFibonacci") {
+		info.Session.MapToFibonacci, _ = strconv.ParseBool("mapToFibonacci")
+	}
 
 	err := components.RootPage(info, "").Render(r.Context(), w)
 	if err != nil {
@@ -156,10 +191,10 @@ func handleStatic(w http.ResponseWriter, r *http.Request) {
 func handleNewSession(w http.ResponseWriter, r *http.Request) {
 	cards := strings.Split(r.FormValue("cards"), ",")
 	rows := strings.Split(r.FormValue("rows"), ",")
+	mapToFibonacci, _ := strconv.ParseBool(r.Form.Get("mapToFibonacci"))
 
 	info := getInfoCookie(r)
-	info.Session.Cards = cards
-	info.Session.Rows = rows
+	info.Session = models.NewSessionInfo(cards, rows, mapToFibonacci)
 
 	errorResponse := func(message string, err error) {
 		slog.Error(message, err)
@@ -178,7 +213,7 @@ func handleNewSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setInfoCookie(w, info)
-	session := sessionManager.New(cards, rows)
+	session := sessionManager.New(info.Session)
 
 	err := components.SessionCreated(*session, r.Header.Get("Origin")).Render(r.Context(), w)
 	if err != nil {
@@ -286,6 +321,8 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	defer sessionManager.Cleanup()
+
 	logAttrs := slog.Group("", slog.String("session", session.ID), slog.String("user", user.Name))
 	defer func() {
 		slog.Debug("ws connection closing", logAttrs)
@@ -361,6 +398,7 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 				if value.UndoSelection {
 					delete(user.Cards, value.Row)
 				}
+				slog.Info("user updated cards", "user", user.Name, "cards", user.Cards)
 			}
 
 			if value.FlipQA {
@@ -396,6 +434,8 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		slog.Warn("updating session", "id", session.ID, "user", user.Name)
+
 		var buff bytes.Buffer
 		err = components.PokerContent(*session, *user).Render(r.Context(), &buff)
 		if err != nil {
@@ -410,7 +450,7 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 }
 
 func getInfoCookie(r *http.Request) models.CookieData {
-	info := models.CookieData{Session: models.NewSessionInfo(defaultCards, nil)}
+	info := models.CookieData{Session: models.NewSessionInfo(defaultCards, nil, true)}
 	if cookie, _ := r.Cookie("info"); cookie != nil {
 		data, err := base64.StdEncoding.DecodeString(cookie.Value)
 		if err == nil {

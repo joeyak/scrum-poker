@@ -16,15 +16,9 @@ body {
     height: 100%;
 }
 
-body {
-    display: flex;
-    flex-direction: column;
-}
-
 body>header,
 body>footer {
     background-color: color-mix(in srgb, var(--pico-background-color) var(--accent-color-percent), var(--pico-primary));
-    ;
     padding-left: 1rem;
     padding-right: 1rem;
 }
@@ -103,8 +97,11 @@ body>footer {
     color: color-mix(in srgb, var(--pico-color) 10%, gray);
 }
 
-#pokerContent,
-.results {
+.result-card {
+    justify-content: center;
+}
+
+.flex-column {
     display: flex;
     flex-direction: column;
 }
