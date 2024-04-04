@@ -299,9 +299,7 @@ func handleSessionExit(w http.ResponseWriter, r *http.Request) {
 	user := session.Users[r.PathValue("userID")]
 	if user != nil {
 		slog.Info("removing user from session", "session", session.ID, "user", user.Name)
-		user.Active = false
-		close(user.UpdateCh)
-		delete(session.Users, user.ID)
+		session.DeleteUser(user.ID)
 		session.SendUpdates()
 	}
 
@@ -423,21 +421,13 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	for {
-		select {
-		case _, ok := <-user.UpdateCh:
-			if !ok {
-				renderError("Your connection has been forcibly closed. Redirecting...", true)
-				return
-			}
-		case <-ctx.Done():
-			return
-		}
-
-		slog.Warn("updating session", "id", session.ID, "user", user.Name)
+	// Kick off once so the user can get the updated UI
+	update := func() {
+		results := session.Calc()
+		showRevealButton := session.AllCardsSelected()
 
 		var buff bytes.Buffer
-		err = components.PokerContent(*session, *user).Render(r.Context(), &buff)
+		err = components.PokerContent(*session, *user, results, showRevealButton).Render(r.Context(), &buff)
 		if err != nil {
 			slog.Error("could not render poker content", logAttrs, err)
 		}
@@ -445,6 +435,21 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 		err = conn.Write(r.Context(), websocket.MessageText, buff.Bytes())
 		if err != nil {
 			slog.Error("could not write to websocket connection for poker content", logAttrs, err)
+		}
+	}
+
+	update()
+
+	for {
+		select {
+		case _, ok := <-user.UpdateCh:
+			if !ok {
+				renderError("Your connection has been forcibly closed. Redirecting...", true)
+				return
+			}
+			update()
+		case <-ctx.Done():
+			return
 		}
 	}
 }

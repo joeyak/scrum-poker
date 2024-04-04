@@ -148,7 +148,7 @@ templ SessionRoom(session models.Session, currentUser models.User) {
 	@header(fmt.Sprintf("Session %s - Welcome %s", session.ID, currentUser.Name), exitLink(session, currentUser))
 	@footer(false)
 	<div hx-ext="ws" ws-connect={ fmt.Sprintf("/session/%s/user/%s/ws", session.ID, currentUser.ID) }>
-		@PokerContent(session, currentUser)
+		@PokerContent(session, currentUser, nil, false)
 	</div>
 }
 
@@ -161,7 +161,7 @@ templ PokerError(message, redirectLink string) {
 	</div>
 }
 
-templ PokerContent(session models.Session, currentUser models.User) {
+templ PokerContent(session models.Session, currentUser models.User, results []models.CalcResults, showRevealButton bool) {
 	<div id="pokerContent" class="flex-column">
 		@PokerError("", "")
 		if currentUser.Type == models.UserTypeParticipant {
@@ -192,19 +192,17 @@ templ PokerContent(session models.Session, currentUser models.User) {
 		<article>
 			<header>Results</header>
 			<div class="grid">
-				if results,  ok := session.Calc(); ok || session.Showing {
-					if session.Showing {
-						<button class="secondary" hx-vals={ `{"resetResults": true}` } ws-send>Clear Results</button>
-						@finalResult(session, results[0].Dev.Avg()+results[0].QA.Avg())
-						for _, result := range results {
-							@cardResults(result)
-						}
-					} else {
-						<div>
-							<input type="button" value="Show Results" hx-vals={ `{"showResults": true}` } ws-send/>
-							<small style="margin-bottom: unset; text-align: center;">Showing results will lock actions till the reset button is clicked.</small>
-						</div>
+				if results != nil {
+					<button class="secondary" hx-vals={ `{"resetResults": true}` } ws-send>Clear Results</button>
+					@finalResult(session, results[0].Dev.Avg()+results[0].QA.Avg())
+					for _, result := range results {
+						@cardResults(result)
 					}
+				} else if showRevealButton {
+					<div>
+						<input type="button" value="Show Results" hx-vals={ `{"showResults": true}` } ws-send/>
+						<small style="margin-bottom: unset; text-align: center;">Showing results will lock actions till the reset button is clicked.</small>
+					</div>
 				} else {
 					<div>All participants much choose thier card(s)</div>
 				}

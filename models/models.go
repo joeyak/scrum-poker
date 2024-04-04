@@ -43,6 +43,8 @@ type Session struct {
 
 	Users map[string]*User
 
+	lastResults []CalcResults
+
 	cancels []func()
 }
 
@@ -70,7 +72,22 @@ func (session *Session) NewUser(name string, userType UserType, isQA bool) *User
 	return user
 }
 
-func (session *Session) Calc() ([]CalcResults, bool) {
+func (session *Session) AllCardsSelected() bool {
+	for _, row := range session.Rows {
+		for _, user := range session.Users {
+			if user.Cards[row] == "" {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func (session *Session) Calc() []CalcResults {
+	if !session.Showing {
+		return nil
+	}
+
 	var results []CalcResults
 	for _, row := range session.Rows {
 		result := NewCalcResults(row)
@@ -79,7 +96,7 @@ func (session *Session) Calc() ([]CalcResults, bool) {
 			if user.Active && user.Type == UserTypeParticipant {
 				card := user.Cards[row]
 				if card == "" {
-					return nil, false
+					return session.lastResults
 				}
 
 				if user.IsQA {
@@ -114,7 +131,8 @@ func (session *Session) Calc() ([]CalcResults, bool) {
 		results = append([]CalcResults{summary}, results...)
 	}
 
-	return results, true
+	session.lastResults = results
+	return results
 }
 
 func (session Session) MultiRow() bool {
@@ -165,25 +183,38 @@ func (session *Session) ReadyUsers() []ReadyUser {
 func (session *Session) Reset() {
 	slog.Info("resetting session", "session", session.ID)
 	session.Showing = false
+	session.lastResults = nil
 	for _, user := range session.Users {
 		user.Cards = map[string]string{}
 	}
 	session.SendUpdates()
 }
 
+func (session *Session) DeleteUser(ID string) {
+	user := session.Users[ID]
+	if user == nil {
+		return
+	}
+
+	user.Close()
+	delete(session.Users, ID)
+}
+
 func (session *Session) SendUpdates() {
 	slog.Debug("sending session updates", "session", session.ID)
 	var wg sync.WaitGroup
 	for _, user := range session.Users {
-		wg.Add(1)
-		go func() {
-			select {
-			case user.UpdateCh <- struct{}{}:
-				slog.Debug("session update sent", "session", session.ID, "user", user.Name)
-			case <-time.After(time.Millisecond * 100):
-			}
-			wg.Done()
-		}()
+		if user.UpdateCh != nil {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				select {
+				case user.UpdateCh <- struct{}{}:
+					slog.Debug("session update sent", "session", session.ID, "user", user.Name)
+				case <-time.After(time.Millisecond * 100):
+				}
+			}()
+		}
 	}
 	wg.Wait()
 	slog.Debug("session updates done", "session", session.ID)
@@ -199,7 +230,9 @@ func (session *Session) Close() {
 	for _, cancel := range session.cancels {
 		cancel()
 	}
-	clear(session.Users)
+	for _, user := range session.Users {
+		user.Close()
+	}
 }
 
 type CalcResults struct {
@@ -291,4 +324,9 @@ type User struct {
 	Cards  map[string]string
 
 	UpdateCh chan struct{}
+}
+
+func (user *User) Close() {
+	user.Active = false
+	user.UpdateCh = nil
 }
