@@ -75,7 +75,7 @@ func (session *Session) NewUser(name string, userType UserType, isQA bool) *User
 func (session *Session) AllCardsSelected() bool {
 	for _, row := range session.Rows {
 		for _, user := range session.Users {
-			if user.Cards[row] == "" {
+			if user.Type == UserTypeParticipant && user.Cards[row] == "" {
 				return false
 			}
 		}
