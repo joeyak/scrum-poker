@@ -171,7 +171,7 @@ func handleStatic(w http.ResponseWriter, r *http.Request) {
 	body, err := staticFS.ReadFile(file)
 
 	if err != nil {
-		slog.Error("could not handle static file", err, "file", "err", file)
+		slog.Error("could not handle static file", "file", file, "err", err)
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
@@ -381,7 +381,7 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 			_, message, err := conn.Read(r.Context())
 			if err != nil {
 				if !errors.As(err, &websocket.CloseError{}) && !errors.Is(err, io.EOF) {
-					slog.Debug("could not read connection", logAttrs, err)
+					slog.Debug("could not read connection", logAttrs, "err", err)
 				}
 				cancel()
 				return
