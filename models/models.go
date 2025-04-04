@@ -59,13 +59,15 @@ func NewSession(ID string, Expires time.Time, sessionInfo SessionInfo) *Session 
 
 func (session *Session) NewUser(name string, userType UserType, isQA bool) *User {
 	user := &User{
-		UserInfo: UserInfo{
-			Name: name,
-			Type: userType,
-			IsQA: isQA,
+		BaseUser: BaseUser{
+			UserInfo: UserInfo{
+				Name: name,
+				Type: userType,
+				IsQA: isQA,
+			},
+			ID:    uuid.NewString(),
+			Cards: map[string]string{},
 		},
-		ID:       uuid.NewString(),
-		Cards:    map[string]string{},
 		UpdateCh: make(chan struct{}),
 	}
 	session.Users[user.ID] = user
@@ -317,12 +319,15 @@ type UserInfo struct {
 	IsQA bool
 }
 
-type User struct {
+type BaseUser struct {
 	UserInfo
 	Active bool
 	ID     string
 	Cards  map[string]string
+}
 
+type User struct {
+	BaseUser
 	UpdateCh chan struct{}
 }
 

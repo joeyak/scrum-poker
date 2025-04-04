@@ -20,10 +20,10 @@ import (
 	"time"
 
 	"github.com/angelofallars/htmx-go"
+	"github.com/coder/websocket"
 	"github.com/joeyak/scrum-poker/components"
 	"github.com/joeyak/scrum-poker/models"
 	"github.com/lmittmann/tint"
-	"nhooyr.io/websocket"
 )
 
 var (
@@ -55,14 +55,6 @@ func main() {
 			AddSource:  debugLog,
 			NoColor:    noColor,
 			TimeFormat: "Jan 02 15:04:05",
-			ReplaceAttr: func(groups []string, attr slog.Attr) slog.Attr {
-				if attr.Key == "!BADKEY" && attr.Value.Kind() == slog.KindAny {
-					if err, ok := attr.Value.Any().(error); ok {
-						attr = tint.Err(err)
-					}
-				}
-				return attr
-			},
 		}),
 	))
 
@@ -85,6 +77,7 @@ func main() {
 	mux.HandleFunc("GET /session/{sessionID}", htmxMiddleware(handleSession))
 	mux.HandleFunc("POST /session/{sessionID}", htmxMiddleware(handleSession))
 	mux.HandleFunc("POST /session/{sessionID}/join", handleSessionJoin)
+	mux.HandleFunc("GET /session/{sessionID}/json", handleSessionJson)
 	mux.HandleFunc("/session/{sessionID}/user/{userID}/exit", handleSessionExit)
 	mux.HandleFunc("/session/{sessionID}/user/{userID}/ws", handleUserWs)
 
@@ -138,7 +131,7 @@ func htmxMiddleware(handler http.HandlerFunc) http.HandlerFunc {
 		if !htmx.IsHTMX(r) {
 			err := components.BaseHTML(r.RequestURI).Render(r.Context(), w)
 			if err != nil {
-				slog.Error("could not render root page", err)
+				slog.Error("could not render root page", "err", err)
 			}
 			return
 		}
@@ -151,7 +144,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		err := components.StatusPage(http.StatusNotFound).Render(r.Context(), w)
 		if err != nil {
-			slog.Error("could not render 404 page", err)
+			slog.Error("could not render 404 page", "err", err)
 		}
 		return
 	}
@@ -169,7 +162,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 
 	err := components.RootPage(info, "").Render(r.Context(), w)
 	if err != nil {
-		slog.Error("could not render root page", err)
+		slog.Error("could not render root page", "err", err)
 	}
 }
 
@@ -178,7 +171,7 @@ func handleStatic(w http.ResponseWriter, r *http.Request) {
 	body, err := staticFS.ReadFile(file)
 
 	if err != nil {
-		slog.Error("could not handle static file", err, "file", file)
+		slog.Error("could not handle static file", err, "file", "err", file)
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
@@ -197,10 +190,10 @@ func handleNewSession(w http.ResponseWriter, r *http.Request) {
 	info.Session = models.NewSessionInfo(cards, rows, mapToFibonacci)
 
 	errorResponse := func(message string, err error) {
-		slog.Error(message, err)
+		slog.Error(message, "err", err)
 		err = components.RootPage(info, strings.ToUpper(message[0:1])+message[1:]).Render(r.Context(), w)
 		if err != nil {
-			slog.Error("could not render root page", err)
+			slog.Error("could not render root page", "err", err)
 		}
 	}
 
@@ -217,7 +210,7 @@ func handleNewSession(w http.ResponseWriter, r *http.Request) {
 
 	err := components.SessionCreated(*session, r.Header.Get("Origin")).Render(r.Context(), w)
 	if err != nil {
-		slog.Error("could not render root page", err)
+		slog.Error("could not render root page", "err", err)
 	}
 }
 
@@ -235,7 +228,7 @@ func handleSession(w http.ResponseWriter, r *http.Request) {
 
 		err := components.SessionJoin(*session, info).Render(r.Context(), w)
 		if err != nil {
-			slog.Error("could not render session join page", sessionAttr, err)
+			slog.Error("could not render session join page", sessionAttr, "err", err)
 		}
 	}
 
@@ -255,7 +248,7 @@ func handleSession(w http.ResponseWriter, r *http.Request) {
 	user.Active = true
 	err = components.SessionRoom(*session, *user).Render(r.Context(), w)
 	if err != nil {
-		slog.Error("could not render root page", sessionAttr, "user", user.Name, err)
+		slog.Error("could not render root page", sessionAttr, "user", user.Name, "err", err)
 	}
 
 	go session.SendUpdates()
@@ -306,6 +299,29 @@ func handleSessionExit(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, fmt.Sprintf("/session/%s", session.ID), http.StatusFound)
 }
 
+func handleSessionJson(w http.ResponseWriter, r *http.Request) {
+	session := sessionManager.Get(r.PathValue("sessionID"))
+	if session == nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	var baseUsers []models.BaseUser
+	for _, user := range session.Users {
+		baseUsers = append(baseUsers, user.BaseUser)
+	}
+
+	data, err := json.MarshalIndent(baseUsers, "", "    ")
+	if err != nil {
+		slog.ErrorContext(r.Context(), "could not marshal indent the session", "sessionID", session.ID, "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
+}
+
 func handleUserWs(w http.ResponseWriter, r *http.Request) {
 	session := sessionManager.Get(r.PathValue("sessionID"))
 	if session == nil {
@@ -330,7 +346,7 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
-		slog.Error("could not accept websocket connection", logAttrs, err)
+		slog.Error("could not accept websocket connection", logAttrs, "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -345,12 +361,12 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 		var buff bytes.Buffer
 		err := components.PokerError(message, redirectLink).Render(r.Context(), &buff)
 		if err != nil {
-			slog.Error("could not render poker error", logAttrs, err)
+			slog.Error("could not render poker error", logAttrs, "err", err)
 		}
 
 		err = conn.Write(r.Context(), websocket.MessageText, buff.Bytes())
 		if err != nil {
-			slog.Error("could not write to websocket for poker error", logAttrs, err)
+			slog.Error("could not write to websocket for poker error", logAttrs, "err", err)
 		}
 	}
 
@@ -381,7 +397,7 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 			}{}
 			err = json.Unmarshal(message, &value)
 			if err != nil {
-				slog.Error("could not unmarshal value", logAttrs, err)
+				slog.Error("could not unmarshal value", logAttrs, "err", err)
 				renderError("An error occured while retrieving data", false)
 				continue
 			}
@@ -429,12 +445,12 @@ func handleUserWs(w http.ResponseWriter, r *http.Request) {
 		var buff bytes.Buffer
 		err = components.PokerContent(*session, *user, results, showRevealButton).Render(r.Context(), &buff)
 		if err != nil {
-			slog.Error("could not render poker content", logAttrs, err)
+			slog.Error("could not render poker content", logAttrs, "err", err)
 		}
 
 		err = conn.Write(r.Context(), websocket.MessageText, buff.Bytes())
 		if err != nil {
-			slog.Error("could not write to websocket connection for poker content", logAttrs, err)
+			slog.Error("could not write to websocket connection for poker content", logAttrs, "err", err)
 		}
 	}
 
@@ -468,7 +484,7 @@ func getInfoCookie(r *http.Request) models.CookieData {
 func setInfoCookie(w http.ResponseWriter, info models.CookieData) {
 	data, err := json.Marshal(info)
 	if err != nil {
-		slog.Error("could not marshal info", err)
+		slog.Error("could not marshal info", "err", err)
 	} else {
 		http.SetCookie(w, &http.Cookie{
 			Name:  "info",
